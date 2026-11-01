@@ -23,7 +23,13 @@ Done.
 
 ## 2. Voice
 
-A real `Listener` and `Speaker`. Push to talk in the window. `listen` feeds `say`.
+Done.
+
+- Hold Alt+Space while the window is focused, or hold the button. Release sends the transcript
+- `listenAndSay` passes that text to `say`, then the speaker speaks the capri line
+- The listener and speaker use the webview Web Speech API. `scriptedListener` and `recordingSpeaker` stay for tests
+- No microphone name, sample rate, or speech model server is in the source. Caprice does not use Handy or Parakeet
+- Listening needs microphone permission where the webview has recognition. WebKitGTK on Linux does not provide recognition or synthesis, and the window says so
 
 ## 3. One computer tool
 

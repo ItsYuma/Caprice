@@ -5,19 +5,37 @@ import {
   personaText,
   type Session,
 } from "@caprice/core";
-import { recordingSpeaker } from "@caprice/voice";
 import { invoke } from "@tauri-apps/api/core";
 import skill from "../../../skills/capri/SKILL.md?raw";
 
 import { loadModelEndpoint, type ShellModelEndpoint } from "./endpoint.ts";
-import { sayAndSpeak } from "./host.ts";
+import { listenAndSay, sayAndSpeak } from "./host.ts";
+import {
+  bindTalk,
+  bindTalkButton,
+  holdToTalk,
+  talkChordLabel,
+} from "./talk.ts";
+import { readWindowSpeech, voiceFromParts } from "./web-speech.ts";
 
-const recording = recordingSpeaker();
+const voice = voiceFromParts(readWindowSpeech());
 const log = document.querySelector("#log");
 const form = document.querySelector("#say");
 const field = document.querySelector("#host");
+const talkButton = document.querySelector("#talk");
+const talkHint = document.querySelector("#talk-hint");
+const talkStatus = document.querySelector("#talk-status");
 
 let session: Session | undefined;
+
+if (talkHint instanceof HTMLElement) {
+  talkHint.textContent =
+    voice.listenLimit ?? `Hold ${talkChordLabel()}. Release to send.`;
+}
+
+if (talkButton instanceof HTMLButtonElement) {
+  talkButton.setAttribute("aria-keyshortcuts", talkChordLabel());
+}
 
 function paint(): void {
   if (session === undefined || !(log instanceof HTMLElement)) {
@@ -44,6 +62,12 @@ function showProblem(text: string): void {
   log.append(row);
 }
 
+function setStatus(text: string): void {
+  if (talkStatus instanceof HTMLElement) {
+    talkStatus.textContent = text;
+  }
+}
+
 async function postChat(
   url: string,
   body: string,
@@ -68,6 +92,51 @@ async function postChat(
   return response.text();
 }
 
+const hold = holdToTalk(
+  voice.listener,
+  async () => {
+    const current = session;
+
+    if (current === undefined) {
+      showProblem("the model is not configured");
+
+      return;
+    }
+
+    setStatus("Listening");
+
+    try {
+      const line = await listenAndSay(current, voice.listener, voice.speaker);
+      paint();
+
+      if (line === undefined) {
+        setStatus("didn't catch that");
+
+        return;
+      }
+
+      setStatus("");
+    } catch (error) {
+      paint();
+      setStatus("");
+      showProblem(
+        error instanceof Error ? error.message : "the model request failed",
+      );
+    }
+  },
+  (phase) => {
+    if (talkButton instanceof HTMLButtonElement) {
+      talkButton.dataset.phase = phase;
+    }
+  },
+);
+
+bindTalk(hold);
+
+if (talkButton instanceof HTMLButtonElement) {
+  bindTalkButton(talkButton, hold);
+}
+
 form?.addEventListener("submit", (event) => {
   event.preventDefault();
 
@@ -84,7 +153,8 @@ form?.addEventListener("submit", (event) => {
   }
 
   field.value = "";
-  void sayAndSpeak(current, recording.speaker, text)
+  setStatus("");
+  void sayAndSpeak(current, voice.speaker, text)
     .then(() => {
       paint();
     })

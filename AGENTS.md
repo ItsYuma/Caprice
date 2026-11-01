@@ -83,3 +83,11 @@ The window talks to whatever chat endpoint the environment names. Set both of th
 | `CAPRICE_MODEL_API_KEY` | Optional bearer token. Omit it when the endpoint does not need one |
 
 Inside the Tauri window, Rust reads those variables when the page asks and posts the chat body. A page opened outside Tauri gets the same names through Vite and posts itself, so that endpoint must allow the page origin. `packages/core` does not read the environment and does not open files.
+
+## Voice
+
+Hold Alt+Space while the Caprice window is focused, or hold the button. Release to send. The chord is `talkChord` in `packages/desktop/src/talk.ts`. It is a window shortcut, so it does not register a global hotkey. A window manager that already owns Alt+Space can swallow the chord before the page sees it. The button still works.
+
+`listenAndSay` waits for `listen`, then runs `say`, then the speaker. `packages/voice` owns `speechListener`, `browserRecognizer`, `browserSpeaker`, `scriptedListener`, and `recordingSpeaker`. The window reads `SpeechRecognition` or `webkitSpeechRecognition`, and `speechSynthesis`, from the webview. Nothing in the source names a microphone, a sample rate, or a speech model server. Caprice does not shell out to Handy or Parakeet.
+
+Listening asks the webview for microphone permission. Recognition quality follows that engine. WebKitGTK 2.52.6 on Ubuntu leaves `SpeechRecognition`, `webkitSpeechRecognition`, `speechSynthesis`, and `SpeechSynthesisUtterance` undefined, so that Linux window can neither hear nor speak until the engine exposes the Web Speech API. The page says so. A window manager can also take Alt+Space for its own menu before the page sees it. The button still starts a listen.
