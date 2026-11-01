@@ -1,0 +1,22 @@
+{
+  "name": "caprice",
+  "private": true,
+  "type": "module",
+  "packageManager": "bun@1.4.4",
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "test": "bun test",
+    "lint": "oxlint",
+    "format": "bun fmt",
+    "format:check": "bun fmt --check",
+    "typecheck": "bun check packages/core && bun check packages/voice && bun check packages/desktop",
+    "dev": "bun run --filter @caprice/desktop tauri dev"
+  },
+  "devDependencies": {
+    "@oxlint/plugins": "1.78.0",
+    "@types/bun": "^1.4.4",
+    "oxlint": "1.78.0"
+  }
+}

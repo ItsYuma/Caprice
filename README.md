@@ -2,15 +2,12 @@
 
 > "Hey, little baby. Wake up. Your computer has a girl in it now."
 
-Annoying desktop companion inspired by Capri (Project Capricorn) from *Cyberpunk: Edgerunners 2*.
+Annoying desktop companion inspired by Capri from _Cyberpunk: Edgerunners 2_. She talks back. Later she handles tasks, after you confirm them.
 
-She controls your computer, handles day-to-day tasks, and talks back.  
-Text-to-speech + speech-to-text. She mocks you while she helps.
+```sh
+bun install
+bun test
+bun run dev
+```
 
-## Features
-- Voice chat (TTS + STT)
-- Day-to-day assistance & computer control
-- Personality: playful, chaotic, annoying on purpose
-
-## Status
-Early build. She's still learning how to be useful without breaking things.
+How the repo is put together: `AGENTS.md` and `docs/architecture.md`. Who she is allowed to be: `CAPRI.md`. What is next: `MILESTONES.md`.

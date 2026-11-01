@@ -1,0 +1,3 @@
+tools/oxlint/anti-slop
+packages/desktop/src-tauri/target
+packages/desktop/src-tauri/gen
