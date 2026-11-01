@@ -1,0 +1,4 @@
+[[permission]]
+identifier = "allow-model-endpoint"
+description = "Read the model URL, model name, and optional API key from the process environment."
+commands.allow = ["model_endpoint", "model_complete"]

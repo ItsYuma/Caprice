@@ -73,3 +73,13 @@ Anti-slop is vendored from `dmmulroy/anti-slop` at `13909c9e07590f5a85d93c627122
 ## Local model
 
 `skills/capri/SKILL.md` is her voice. `personaText` starts at `## Voice`. `skills/host/SKILL.md` is the tool contract. When a skill's job changes, change the skill and the test that pins its heading. Do not copy the skill into TypeScript.
+
+The window talks to whatever chat endpoint the environment names. Set both of these before `bun run dev`. There is no default host, port, or model name.
+
+| Variable                | What it is                                                         |
+| ----------------------- | ------------------------------------------------------------------ |
+| `CAPRICE_MODEL_URL`     | Full URL that accepts a JSON body `{ model, messages }`            |
+| `CAPRICE_MODEL`         | Model name sent in that body                                       |
+| `CAPRICE_MODEL_API_KEY` | Optional bearer token. Omit it when the endpoint does not need one |
+
+Inside the Tauri window, Rust reads those variables when the page asks and posts the chat body. A page opened outside Tauri gets the same names through Vite and posts itself, so that endpoint must allow the page origin. `packages/core` does not read the environment and does not open files.

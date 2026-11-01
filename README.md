@@ -7,7 +7,9 @@ Annoying desktop companion inspired by Capri from _Cyberpunk: Edgerunners 2_. Sh
 ```sh
 bun install
 bun test
-bun run dev
+CAPRICE_MODEL_URL=http://your-brain/v1/chat/completions CAPRICE_MODEL=your-model bun run dev
 ```
+
+`CAPRICE_MODEL_URL` and `CAPRICE_MODEL` are required. Nothing in the repo picks them for you.
 
 How the repo is put together: `AGENTS.md` and `docs/architecture.md`. Who she is allowed to be: `CAPRI.md`. What is next: `MILESTONES.md`.
