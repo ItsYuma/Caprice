@@ -14,7 +14,12 @@ Done in the first architecture pass.
 
 ## 1. One local model
 
-A `Model` that runs without a cloud account. `personaText` is the system prompt. The stub remains for tests.
+Done.
+
+- `chatModel` posts to a chat endpoint with no cloud account
+- `CAPRICE_MODEL_URL` and `CAPRICE_MODEL` come from the environment. The source has no host, port, or model name
+- `personaText` is the system message
+- `stubModel` remains for tests
 
 ## 2. Voice
 

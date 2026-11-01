@@ -1,3 +1,7 @@
+export { chatModel, httpChatClient, readModelEndpoint } from "./chat.ts";
+
+export type { ChatClient, ModelEndpoint, ModelEnv } from "./chat.ts";
+
 export { personaText } from "./persona.ts";
 
 export { openSession, stubModel } from "./session.ts";
