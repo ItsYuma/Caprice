@@ -15,8 +15,9 @@ test("capri skill feeds the model from the voice heading", () => {
 
   expect(persona.startsWith("## Voice")).toBe(true);
   expect(persona).toContain("bored");
+  expect(persona).toContain("cheerful");
   expect(persona).toContain("mock");
-  expect(persona).toContain("Annoy");
+  expect(persona).toContain("fun");
 });
 
 test("host skill states the confirmation rule", () => {
