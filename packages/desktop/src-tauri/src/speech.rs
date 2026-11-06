@@ -52,15 +52,34 @@ impl Drop for SpeechWorker {
 
 pub(crate) fn speech_transcribe(state: &SpeechState, path: String) -> Result<String, String> {
     let mut slot = lock(&state.shared.worker);
+    if worker_stopped(slot.as_mut()) {
+        *slot = None;
+    }
     if slot.is_none() {
         *slot = Some(spawn_worker()?);
     }
-    let worker = slot
-        .as_mut()
-        .ok_or_else(|| "speech worker exited".to_string())?;
+    let outcome = transcribe_open(slot.as_mut(), &path);
+    if matches!(&outcome, Err(message) if message == "speech worker exited") {
+        *slot = None;
+    }
+    outcome
+}
+
+fn worker_stopped(worker: Option<&mut SpeechWorker>) -> bool {
+    let Some(worker) = worker else {
+        return false;
+    };
+    match worker.child.try_wait() {
+        Ok(Some(_)) | Err(_) => true,
+        Ok(None) => false,
+    }
+}
+
+fn transcribe_open(worker: Option<&mut SpeechWorker>, path: &str) -> Result<String, String> {
+    let worker = worker.ok_or_else(|| "speech worker exited".to_string())?;
     let id = worker.next_id.to_string();
     worker.next_id = worker.next_id.saturating_add(1);
-    write_transcribe(worker, &id, &path)
+    write_transcribe(worker, &id, path)
 }
 
 pub(crate) fn speech_listen_start(state: &SpeechState) -> Result<(), String> {
@@ -449,6 +468,22 @@ mod tests {
         }
     }
 
+    fn wait_until_exited(pid: u32) {
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
+        loop {
+            let stat = std::fs::read_to_string(format!("/proc/{pid}/stat")).unwrap_or_default();
+            let state = stat
+                .rsplit_once(')')
+                .and_then(|(_, tail)| tail.split_whitespace().next())
+                .unwrap_or("");
+            if state.is_empty() || state == "Z" {
+                return;
+            }
+            assert!(std::time::Instant::now() < deadline, "worker stayed alive");
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+    }
+
     fn write_script(dir: &Path, body: &str) -> PathBuf {
         let path = dir.join("worker.py");
         std::fs::write(&path, body).expect("script");
@@ -618,6 +653,79 @@ sys.exit(0)
             speech_transcribe(&state, "/tmp/clip.wav".into()).unwrap_err(),
             "speech worker exited"
         );
+        assert!(worker_pid(&state).is_none());
+    }
+
+    #[test]
+    fn dead_worker_is_replaced_on_the_next_request() {
+        let _lock = env_lock();
+        let dir = TempDir::new("respawn");
+        let count = dir.0.join("count.txt");
+        let clip = dir.0.join("clip.wav");
+        std::fs::write(&count, "0").expect("count");
+        std::fs::write(&clip, b"wav").expect("clip");
+        let script = write_script(
+            &dir.0,
+            r#"
+import json, os, sys
+count_path = os.environ["CAPRICE_STT_COUNT"]
+count = int(open(count_path, encoding="utf-8").read())
+open(count_path, "w", encoding="utf-8").write(str(count + 1))
+print(json.dumps({"type": "ready", "device": "cpu", "compute": "int8"}), flush=True)
+if count == 0:
+    sys.exit(0)
+while True:
+    line = sys.stdin.readline()
+    if line == "":
+        break
+    req = json.loads(line)
+    if os.path.isfile(req["path"]):
+        print(json.dumps({"id": req["id"], "text": "heard"}), flush=True)
+    else:
+        print(json.dumps({"id": req["id"], "error": "missing"}), flush=True)
+    if count == 1:
+        sys.exit(0)
+"#,
+        );
+        let _python = EnvGuard::set("CAPRICE_STT_PYTHON", None);
+        let _worker = EnvGuard::set("CAPRICE_STT_WORKER", script.to_str());
+        let _count = EnvGuard::set("CAPRICE_STT_COUNT", count.to_str());
+        let state = SpeechState::new();
+        let clip_path = clip.to_string_lossy().into_owned();
+        assert_eq!(
+            speech_transcribe(&state, clip_path.clone()).unwrap_err(),
+            "speech worker exited"
+        );
+        assert!(worker_pid(&state).is_none());
+        assert_eq!(
+            speech_transcribe(&state, clip_path.clone()).unwrap(),
+            "heard"
+        );
+        let dying = worker_pid(&state).expect("answered once");
+        wait_until_exited(dying);
+        let replaced = speech_transcribe(&state, clip_path.clone()).unwrap();
+        assert_eq!(replaced, "heard");
+        let pid = worker_pid(&state).expect("respawned");
+        assert_eq!(speech_transcribe(&state, clip_path).unwrap(), "heard");
+        assert_eq!(worker_pid(&state), Some(pid));
+        assert_eq!(std::fs::read_to_string(count).expect("count"), "3");
+    }
+
+    #[test]
+    fn bundled_worker_reports_a_missing_model() {
+        let _lock = env_lock();
+        let script = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../../speech/worker.py");
+        assert!(script.is_file());
+        let _python = EnvGuard::set("CAPRICE_STT_PYTHON", None);
+        let _worker = EnvGuard::set("CAPRICE_STT_WORKER", script.to_str());
+        let _model = EnvGuard::set("CAPRICE_STT_MODEL", None);
+        let _device = EnvGuard::set("CAPRICE_STT_DEVICE", None);
+        let state = SpeechState::new();
+        assert_eq!(
+            speech_transcribe(&state, "/tmp/clip.wav".into()).unwrap_err(),
+            "CAPRICE_STT_MODEL is not set"
+        );
+        assert!(worker_pid(&state).is_none());
     }
 
     #[test]

@@ -6,17 +6,19 @@ Annoying desktop companion. She talks, and later she uses the computer when the 
 
 From the repo root, with Bun 1.4.4:
 
-| Command                | What it does                                  |
-| ---------------------- | --------------------------------------------- |
-| `bun install`          | Install the workspace                         |
-| `bun test`             | Tests under `packages/`                       |
-| `bun run lint`         | Oxlint, including anti-slop                   |
-| `bun fmt`              | Format                                        |
-| `bun run format:check` | Format check                                  |
-| `bun run typecheck`    | `bun check` on each package                   |
-| `bun run dev`          | Tauri window                                  |
-| `cargo check`          | Rust shell, from `packages/desktop/src-tauri` |
-| `cargo fmt`            | Format the shell                              |
+| Command                                    | What it does                                        |
+| ------------------------------------------ | --------------------------------------------------- |
+| `bun install`                              | Install the workspace                               |
+| `bun test`                                 | Tests under `packages/`                             |
+| `bun run lint`                             | Oxlint, including anti-slop                         |
+| `bun fmt`                                  | Format                                              |
+| `bun run format:check`                     | Format check                                        |
+| `bun run typecheck`                        | `bun check` on each package                         |
+| `bun run dev`                              | Tauri window                                        |
+| `cargo check`                              | Rust shell, from `packages/desktop/src-tauri`       |
+| `cargo test`                               | Rust shell tests, from `packages/desktop/src-tauri` |
+| `cargo fmt`                                | Format the shell                                    |
+| `python3 -m unittest speech/serve_test.py` | Speech worker protocol                              |
 
 The shell needs Rust 1.99.1. Tauri 2.12 does not build on 1.83. `packages/desktop/src-tauri/rust-toolchain.toml` selects it.
 

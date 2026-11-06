@@ -1,4 +1,9 @@
 [[permission]]
 identifier = "allow-speech-worker"
 description = "Transcribe a recording, listen on the default microphone, and request spoken audio."
-commands.allow = ["speech_transcribe", "speech_listen_start", "speech_listen_stop", "speech_speak"]
+commands.allow = [
+  "speech_transcribe",
+  "speech_listen_start",
+  "speech_listen_stop",
+  "speech_speak",
+]
