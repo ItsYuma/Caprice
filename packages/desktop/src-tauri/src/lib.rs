@@ -1,3 +1,5 @@
+mod speech;
+
 use serde::Serialize;
 
 #[derive(Serialize)]
@@ -82,10 +84,50 @@ mod tests {
     }
 }
 
+async fn blocking<T>(work: impl FnOnce() -> T + Send + 'static) -> Result<T, String>
+where
+    T: Send + 'static,
+{
+    tauri::async_runtime::spawn_blocking(work)
+        .await
+        .map_err(|err| err.to_string())
+}
+
+#[tauri::command]
+async fn speech_transcribe(
+    state: tauri::State<'_, speech::SpeechState>,
+    path: String,
+) -> Result<String, String> {
+    let state = state.inner().clone();
+    blocking(move || speech::speech_transcribe(&state, path)).await?
+}
+
+#[tauri::command]
+async fn speech_listen_start(state: tauri::State<'_, speech::SpeechState>) -> Result<(), String> {
+    let state = state.inner().clone();
+    blocking(move || speech::speech_listen_start(&state)).await?
+}
+
+#[tauri::command]
+async fn speech_listen_stop(
+    state: tauri::State<'_, speech::SpeechState>,
+) -> Result<String, String> {
+    let state = state.inner().clone();
+    blocking(move || speech::speech_listen_stop(&state)).await?
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
-        .invoke_handler(tauri::generate_handler![model_endpoint, model_complete])
+        .manage(speech::SpeechState::new())
+        .invoke_handler(tauri::generate_handler![
+            model_endpoint,
+            model_complete,
+            speech_transcribe,
+            speech_listen_start,
+            speech_listen_stop,
+            speech::speech_speak,
+        ])
         .run(tauri::generate_context!())
         .expect("error while running caprice");
 }
