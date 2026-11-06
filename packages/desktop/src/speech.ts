@@ -7,7 +7,7 @@ import {
 
 import { talkChordLabel } from "./talk.ts";
 
-export const workerUnavailable = "speech worker is unavailable in this window";
+export const modelUnavailable = "speech model is unavailable in this window";
 
 export const speechUnconfigured = "speech is not configured";
 
@@ -56,7 +56,7 @@ export function speechHint(inShell: boolean): string {
     return `Hold ${talkChordLabel()}. Release to send.`;
   }
 
-  return workerUnavailable;
+  return modelUnavailable;
 }
 
 export function tauriCommands(bridge: SpeechBridge): SpeechCommands {
@@ -80,7 +80,7 @@ export function shellListener(commands: SpeechCommands): PushListener {
 export function pageListener(): PushListener {
   return captureListener({
     async begin() {
-      throw new Error(workerUnavailable);
+      throw new Error(modelUnavailable);
     },
     async finish() {
       return "";

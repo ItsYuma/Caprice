@@ -13,14 +13,14 @@ import {
   speechUnconfigured,
   tauriCommands,
   ttsExchange,
-  workerUnavailable,
+  modelUnavailable,
   type SpeechCommands,
   type TtsEnv,
 } from "./speech.ts";
 
-test("the shell hint names the chord and the page says the worker is unavailable", () => {
+test("the shell hint names the chord and the page says the model is unavailable", () => {
   expect(speechHint(true)).toBe("Hold Alt+Space. Release to send.");
-  expect(speechHint(false)).toBe(workerUnavailable);
+  expect(speechHint(false)).toBe(modelUnavailable);
 });
 
 test("tauri commands use the speech invoke names", async () => {
@@ -107,7 +107,7 @@ test("a page without the shell cannot listen", async () => {
   const listener = pageListener();
 
   listener.release();
-  await expect(listener.listen()).rejects.toThrow(workerUnavailable);
+  await expect(listener.listen()).rejects.toThrow(modelUnavailable);
 });
 
 test("page speech posts json and plays the response bytes", async () => {

@@ -116,14 +116,14 @@ test("begin rejection rejects listen and does not finish", async () => {
 
 test("finish rejection rejects listen", async () => {
   const capture = deferredCapture();
-  capture.failFinish(new Error("speech worker exited"));
+  capture.failFinish(new Error("could not hear"));
   const listener = captureListener(capture.capture);
   const pending = listener.listen();
 
   capture.allowBegin();
   await Promise.resolve();
   listener.release();
-  await expect(pending).rejects.toThrow("speech worker exited");
+  await expect(pending).rejects.toThrow("could not hear");
   expect(capture.finishes()).toBe(1);
   listener.release();
   expect(capture.finishes()).toBe(1);

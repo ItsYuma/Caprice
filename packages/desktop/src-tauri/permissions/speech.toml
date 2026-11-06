@@ -1,6 +1,6 @@
 [[permission]]
-identifier = "allow-speech-worker"
-description = "Transcribe a recording, listen on the default microphone, and request spoken audio."
+identifier = "allow-speech-model"
+description = "Transcribe with the resident Parakeet model, listen on the default microphone, and request spoken audio."
 commands.allow = [
   "speech_transcribe",
   "speech_listen_start",

@@ -1,13 +1,15 @@
-use std::io::{BufRead, BufReader, Write};
 use std::path::PathBuf;
-use std::process::{Child, ChildStdin, Command, Stdio};
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
 
 use base64::engine::general_purpose::STANDARD;
 use base64::Engine;
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use cpal::Sample;
+use transcribe_rs::onnx::parakeet::ParakeetModel;
+use transcribe_rs::onnx::Quantization;
+use transcribe_rs::{SpeechModel, TranscribeOptions};
+
+const PARAKEET_RATE: u32 = 16_000;
 
 #[derive(Clone)]
 pub(crate) struct SpeechState {
@@ -15,15 +17,8 @@ pub(crate) struct SpeechState {
 }
 
 struct SpeechShared {
-    worker: Mutex<Option<SpeechWorker>>,
+    model: Mutex<Option<ParakeetModel>>,
     recording: Mutex<Option<Recording>>,
-}
-
-struct SpeechWorker {
-    child: Child,
-    stdin: ChildStdin,
-    stdout: BufReader<std::process::ChildStdout>,
-    next_id: u64,
 }
 
 struct Recording {
@@ -36,54 +31,22 @@ impl SpeechState {
     pub(crate) fn new() -> Self {
         Self {
             shared: Arc::new(SpeechShared {
-                worker: Mutex::new(None),
+                model: Mutex::new(None),
                 recording: Mutex::new(None),
             }),
         }
     }
 }
 
-impl Drop for SpeechWorker {
-    fn drop(&mut self) {
-        let _ = self.child.kill();
-        let _ = self.child.wait();
-    }
-}
-
 pub(crate) fn speech_transcribe(state: &SpeechState, path: String) -> Result<String, String> {
-    let mut slot = lock(&state.shared.worker);
-    if worker_stopped(slot.as_mut()) {
-        *slot = None;
-    }
-    if slot.is_none() {
-        *slot = Some(spawn_worker()?);
-    }
-    let outcome = transcribe_open(slot.as_mut(), &path);
-    if matches!(&outcome, Err(message) if message == "speech worker exited") {
-        *slot = None;
-    }
-    outcome
-}
-
-fn worker_stopped(worker: Option<&mut SpeechWorker>) -> bool {
-    let Some(worker) = worker else {
-        return false;
-    };
-    match worker.child.try_wait() {
-        Ok(Some(_)) | Err(_) => true,
-        Ok(None) => false,
-    }
-}
-
-fn transcribe_open(worker: Option<&mut SpeechWorker>, path: &str) -> Result<String, String> {
-    let worker = worker.ok_or_else(|| "speech worker exited".to_string())?;
-    let id = worker.next_id.to_string();
-    worker.next_id = worker.next_id.saturating_add(1);
-    write_transcribe(worker, &id, path)
+    model_dir()?;
+    let bytes = std::fs::read(&path).map_err(|err| err.to_string())?;
+    let (rate, samples) = decode_wav(&bytes)?;
+    transcribe_samples(state, &samples, rate)
 }
 
 pub(crate) fn speech_listen_start(state: &SpeechState) -> Result<(), String> {
-    worker_script()?;
+    model_dir()?;
     let mut slot = lock(&state.shared.recording);
     if slot.is_some() {
         return Err("already listening".to_string());
@@ -93,7 +56,7 @@ pub(crate) fn speech_listen_start(state: &SpeechState) -> Result<(), String> {
 }
 
 pub(crate) fn speech_listen_stop(state: &SpeechState) -> Result<String, String> {
-    worker_script()?;
+    model_dir()?;
     let recording = {
         let mut slot = lock(&state.shared.recording);
         slot.take().ok_or_else(|| "not listening".to_string())?
@@ -105,15 +68,7 @@ pub(crate) fn speech_listen_stop(state: &SpeechState) -> Result<String, String> 
     } = recording;
     drop(stream);
     let captured = lock(&samples).clone();
-    let bytes = encode_wav(sample_rate, &captured);
-    let path = wav_file_path();
-    if let Err(err) = std::fs::write(&path, &bytes) {
-        let _ = std::fs::remove_file(&path);
-        return Err(err.to_string());
-    }
-    let result = speech_transcribe(state, path.to_string_lossy().into_owned());
-    let _ = std::fs::remove_file(&path);
-    result
+    transcribe_samples(state, &captured, sample_rate)
 }
 
 #[tauri::command]
@@ -159,108 +114,72 @@ pub(crate) async fn speech_speak(text: String) -> Result<String, String> {
     Ok(STANDARD.encode(bytes))
 }
 
-fn worker_script() -> Result<String, String> {
-    match std::env::var("CAPRICE_STT_WORKER") {
-        Ok(path) if !path.is_empty() => Ok(path),
-        _ => Err("CAPRICE_STT_WORKER is not set".to_string()),
+fn model_dir() -> Result<PathBuf, String> {
+    match std::env::var("CAPRICE_STT_MODEL") {
+        Ok(path) if !path.trim().is_empty() => Ok(PathBuf::from(path.trim())),
+        _ => Err("CAPRICE_STT_MODEL is not set".to_string()),
     }
 }
 
-fn python_program() -> String {
-    match std::env::var("CAPRICE_STT_PYTHON") {
-        Ok(program) if !program.is_empty() => program,
-        _ => "python3".to_string(),
-    }
+fn load_parakeet() -> Result<ParakeetModel, String> {
+    let dir = model_dir()?;
+    ParakeetModel::load(&dir, &Quantization::Int8).map_err(|err| err.to_string())
 }
 
-fn spawn_worker() -> Result<SpeechWorker, String> {
-    let script = worker_script()?;
-    let mut child = Command::new(python_program())
-        .arg(&script)
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::null())
-        .spawn()
+fn transcribe_samples(
+    state: &SpeechState,
+    samples: &[f32],
+    sample_rate: u32,
+) -> Result<String, String> {
+    let mut slot = lock(&state.shared.model);
+    with_resident(&mut slot, load_parakeet, |model| {
+        hear(model, samples, sample_rate)
+    })
+}
+
+fn hear(model: &mut ParakeetModel, samples: &[f32], sample_rate: u32) -> Result<String, String> {
+    let audio = resample_linear(samples, sample_rate, PARAKEET_RATE);
+    if audio.is_empty() {
+        return Ok(String::new());
+    }
+    let result = model
+        .transcribe(&audio, &TranscribeOptions::default())
         .map_err(|err| err.to_string())?;
-    let stdin = match child.stdin.take() {
-        Some(stdin) => stdin,
-        None => return Err(reap(&mut child)),
-    };
-    let stdout = match child.stdout.take() {
-        Some(stdout) => stdout,
-        None => return Err(reap(&mut child)),
-    };
-    let mut worker = SpeechWorker {
-        child,
-        stdin,
-        stdout: BufReader::new(stdout),
-        next_id: 1,
-    };
-    read_ready(&mut worker)?;
-    Ok(worker)
+    Ok(result.text.trim().to_string())
 }
 
-fn reap(child: &mut Child) -> String {
-    let _ = child.kill();
-    let _ = child.wait();
-    "speech worker exited".to_string()
-}
-
-fn read_ready(worker: &mut SpeechWorker) -> Result<(), String> {
-    let mut line = String::new();
-    match worker.stdout.read_line(&mut line) {
-        Ok(0) | Err(_) => return Err("speech worker exited".to_string()),
-        Ok(_) => {}
+fn with_resident<T, R>(
+    slot: &mut Option<T>,
+    load: impl FnOnce() -> Result<T, String>,
+    use_model: impl FnOnce(&mut T) -> Result<R, String>,
+) -> Result<R, String> {
+    if slot.is_none() {
+        *slot = Some(load()?);
     }
-    let value: serde_json::Value =
-        serde_json::from_str(line.trim()).map_err(|err| err.to_string())?;
-    match value.get("type").and_then(|kind| kind.as_str()) {
-        Some("ready") => Ok(()),
-        Some("error") => {
-            let message = value
-                .get("message")
-                .and_then(|message| message.as_str())
-                .unwrap_or("")
-                .to_string();
-            Err(message)
-        }
-        _ => Err("speech worker exited".to_string()),
-    }
-}
-
-fn write_transcribe(worker: &mut SpeechWorker, id: &str, path: &str) -> Result<String, String> {
-    let request = serde_json::json!({
-        "id": id,
-        "op": "transcribe",
-        "path": path,
-    });
-    let line = serde_json::to_string(&request).map_err(|err| err.to_string())?;
-    if writeln!(worker.stdin, "{line}").is_err() || worker.stdin.flush().is_err() {
-        return Err(reap(&mut worker.child));
-    }
-    let mut response = String::new();
-    match worker.stdout.read_line(&mut response) {
-        Ok(0) | Err(_) => Err(reap(&mut worker.child)),
-        Ok(_) => parse_transcript(&response, id),
-    }
-}
-
-fn parse_transcript(line: &str, id: &str) -> Result<String, String> {
-    let value: serde_json::Value = match serde_json::from_str(line.trim()) {
-        Ok(value) => value,
-        Err(_) => return Err("speech worker response did not match".to_string()),
+    let model = match slot.as_mut() {
+        Some(model) => model,
+        None => return Err("speech model is not loaded".to_string()),
     };
-    let response_id = value.get("id").and_then(|item| item.as_str()).unwrap_or("");
-    if response_id != id {
-        return Err("speech worker response did not match".to_string());
+    use_model(model)
+}
+
+fn resample_linear(samples: &[f32], from_rate: u32, to_rate: u32) -> Vec<f32> {
+    if samples.is_empty() || from_rate == 0 || from_rate == to_rate {
+        return samples.to_vec();
     }
-    if let Some(error) = value.get("error").and_then(|error| error.as_str()) {
-        return Err(error.to_string());
+    let out_len = (samples.len() as u64)
+        .saturating_mul(u64::from(to_rate))
+        .saturating_div(u64::from(from_rate)) as usize;
+    let mut out = Vec::with_capacity(out_len);
+    let last = samples.len() - 1;
+    for index in 0..out_len {
+        let position = index as f64 * f64::from(from_rate) / f64::from(to_rate);
+        let left = (position.floor() as usize).min(last);
+        let right = (left + 1).min(last);
+        let frac = (position - left as f64) as f32;
+        out.push(samples[left] * (1.0 - frac) + samples[right] * frac);
     }
-    if let Some(text) = value.get("text").and_then(|text| text.as_str()) {
-        return Ok(text.to_string());
-    }
-    Err("speech worker response did not match".to_string())
+    out
 }
 
 fn open_input() -> Result<Recording, String> {
@@ -379,15 +298,54 @@ fn encode_wav(sample_rate: u32, samples: &[f32]) -> Vec<u8> {
     bytes
 }
 
+fn decode_wav(bytes: &[u8]) -> Result<(u32, Vec<f32>), String> {
+    if bytes.len() < 12 || &bytes[0..4] != b"RIFF" || &bytes[8..12] != b"WAVE" {
+        return Err("wav must be 16-bit mono pcm".to_string());
+    }
+    let mut offset = 12;
+    let mut rate = None;
+    let mut pcm = None;
+    while offset + 8 <= bytes.len() {
+        let id = &bytes[offset..offset + 4];
+        let size = le_u32(&bytes[offset + 4..offset + 8]) as usize;
+        let start = offset + 8;
+        if start + size > bytes.len() {
+            return Err("wav must be 16-bit mono pcm".to_string());
+        }
+        let body = &bytes[start..start + size];
+        if id == b"fmt " {
+            if body.len() < 16 {
+                return Err("wav must be 16-bit mono pcm".to_string());
+            }
+            let format = u16::from_le_bytes([body[0], body[1]]);
+            let channels = u16::from_le_bytes([body[2], body[3]]);
+            let bits = u16::from_le_bytes([body[14], body[15]]);
+            if format != 1 || channels != 1 || bits != 16 {
+                return Err("wav must be 16-bit mono pcm".to_string());
+            }
+            rate = Some(le_u32(&body[4..8]));
+        } else if id == b"data" {
+            pcm = Some(body);
+        }
+        offset = start + size + (size % 2);
+    }
+    let rate = rate.ok_or_else(|| "wav must be 16-bit mono pcm".to_string())?;
+    let pcm = pcm.ok_or_else(|| "wav must be 16-bit mono pcm".to_string())?;
+    let mut samples = Vec::with_capacity(pcm.len() / 2);
+    for chunk in pcm.chunks_exact(2) {
+        let value = i16::from_le_bytes([chunk[0], chunk[1]]);
+        samples.push(value as f32 / 32767.0);
+    }
+    Ok((rate, samples))
+}
+
+fn le_u32(bytes: &[u8]) -> u32 {
+    u32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]])
+}
+
 fn pcm_i16(sample: f32) -> i16 {
     let scaled = sample.clamp(-1.0, 1.0) * 32767.0;
     scaled.round() as i16
-}
-
-fn wav_file_path() -> PathBuf {
-    static NEXT: AtomicU64 = AtomicU64::new(0);
-    let n = NEXT.fetch_add(1, Ordering::Relaxed);
-    std::env::temp_dir().join(format!("caprice-{}-{n}.wav", std::process::id()))
 }
 
 fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
@@ -398,21 +356,13 @@ fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
 }
 
 #[cfg(test)]
-fn worker_pid(state: &SpeechState) -> Option<u32> {
-    lock(&state.shared.worker)
-        .as_ref()
-        .map(|worker| worker.child.id())
-}
-
-#[cfg(test)]
 mod tests {
     use std::io::{Read, Write};
-    use std::path::{Path, PathBuf};
     use std::sync::Mutex;
 
     use super::{
-        encode_wav, speech_listen_start, speech_listen_stop, speech_speak, speech_transcribe,
-        worker_pid, SpeechState,
+        decode_wav, encode_wav, resample_linear, speech_listen_stop, speech_speak,
+        speech_transcribe, with_resident, SpeechState,
     };
 
     static ENV_LOCK: Mutex<()> = Mutex::new(());
@@ -449,292 +399,105 @@ mod tests {
         }
     }
 
-    struct TempDir(PathBuf);
-
-    impl TempDir {
-        fn new(label: &str) -> Self {
-            static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
-            let n = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-            let path =
-                std::env::temp_dir().join(format!("caprice-{label}-{}-{n}", std::process::id()));
-            std::fs::create_dir_all(&path).expect("temp dir");
-            Self(path)
-        }
-    }
-
-    impl Drop for TempDir {
-        fn drop(&mut self) {
-            let _ = std::fs::remove_dir_all(&self.0);
-        }
-    }
-
-    fn wait_until_exited(pid: u32) {
-        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
-        loop {
-            let stat = std::fs::read_to_string(format!("/proc/{pid}/stat")).unwrap_or_default();
-            let state = stat
-                .rsplit_once(')')
-                .and_then(|(_, tail)| tail.split_whitespace().next())
-                .unwrap_or("");
-            if state.is_empty() || state == "Z" {
-                return;
-            }
-            assert!(std::time::Instant::now() < deadline, "worker stayed alive");
-            std::thread::sleep(std::time::Duration::from_millis(10));
-        }
-    }
-
-    fn write_script(dir: &Path, body: &str) -> PathBuf {
-        let path = dir.join("worker.py");
-        std::fs::write(&path, body).expect("script");
-        path
-    }
-
     #[test]
-    fn resident_worker_transcribes_twice() {
+    fn missing_stt_model() {
         let _lock = env_lock();
-        let dir = TempDir::new("resident");
-        let log = dir.0.join("log.txt");
-        let clip = dir.0.join("clip.wav");
-        std::fs::write(&clip, b"not-audio").expect("clip");
-        let script = write_script(
-            &dir.0,
-            r#"
-import json, os, sys
-print("ignored", file=sys.stderr, flush=True)
-log = os.environ["CAPRICE_STT_LOG"]
-with open(log, "a", encoding="utf-8") as handle:
-    handle.write("start %s\n" % os.getpid())
-print(json.dumps({"type": "ready", "device": "cpu", "compute": "int8"}), flush=True)
-while True:
-    line = sys.stdin.readline()
-    if line == "":
-        break
-    req = json.loads(line)
-    with open(log, "a", encoding="utf-8") as handle:
-        handle.write(json.dumps(req, separators=(",", ":")) + "\n")
-    if os.path.isfile(req["path"]):
-        print(json.dumps({"id": req["id"], "text": "heard"}), flush=True)
-    else:
-        print(json.dumps({"id": req["id"], "error": "missing"}), flush=True)
-"#,
-        );
-        let _python = EnvGuard::set("CAPRICE_STT_PYTHON", None);
-        let _worker = EnvGuard::set("CAPRICE_STT_WORKER", script.to_str());
-        let _log = EnvGuard::set("CAPRICE_STT_LOG", log.to_str());
-        let state = SpeechState::new();
-        let clip_arg = clip.to_string_lossy().into_owned();
-
-        let first = speech_transcribe(&state, clip_arg.clone()).expect("first");
-        let pid = worker_pid(&state);
-        let second = speech_transcribe(&state, clip_arg.clone()).expect("second");
-        let missing = speech_transcribe(
-            &state,
-            dir.0.join("gone.wav").to_string_lossy().into_owned(),
-        );
-
-        assert_eq!(first, "heard");
-        assert_eq!(second, "heard");
-        assert_eq!(missing.unwrap_err(), "missing");
-        assert!(pid.is_some());
-        assert_eq!(pid, worker_pid(&state));
-        let log_text = std::fs::read_to_string(&log).expect("log");
-        let starts: Vec<_> = log_text
-            .lines()
-            .filter(|line| line.starts_with("start "))
-            .collect();
-        assert_eq!(starts.len(), 1);
-        let logged_pid: u32 = starts[0].trim_start_matches("start ").parse().expect("pid");
-        assert_eq!(Some(logged_pid), pid);
-        assert!(Path::new(&format!("/proc/{logged_pid}")).exists());
-        let requests: Vec<serde_json::Value> = log_text
-            .lines()
-            .filter(|line| line.starts_with('{'))
-            .map(|line| serde_json::from_str(line).expect("request"))
-            .collect();
-        assert_eq!(requests.len(), 3);
-        assert_eq!(requests[0]["id"], "1");
-        assert_eq!(requests[1]["id"], "2");
-        assert_eq!(requests[0]["op"], "transcribe");
-        assert_eq!(requests[0]["path"], clip_arg);
-        assert_eq!(requests[1]["path"], clip_arg);
-
-        drop(state);
-        let mut gone = false;
-        for _ in 0..100 {
-            if !Path::new(&format!("/proc/{logged_pid}")).exists() {
-                gone = true;
-                break;
-            }
-            std::thread::sleep(std::time::Duration::from_millis(10));
-        }
-        assert!(gone, "worker still running");
-    }
-
-    #[test]
-    fn missing_stt_worker() {
-        let _lock = env_lock();
-        let _worker = EnvGuard::set("CAPRICE_STT_WORKER", None);
-        let state = SpeechState::new();
-        assert_eq!(
-            speech_transcribe(&state, "/tmp/clip.wav".into()).unwrap_err(),
-            "CAPRICE_STT_WORKER is not set"
-        );
-        assert_eq!(
-            speech_listen_start(&state).unwrap_err(),
-            "CAPRICE_STT_WORKER is not set"
-        );
-        assert_eq!(
-            speech_listen_stop(&state).unwrap_err(),
-            "CAPRICE_STT_WORKER is not set"
-        );
-        assert!(worker_pid(&state).is_none());
-    }
-
-    #[test]
-    fn worker_ready_error_is_the_message() {
-        let _lock = env_lock();
-        let dir = TempDir::new("ready-error");
-        let script = write_script(
-            &dir.0,
-            r#"
-import json
-print(json.dumps({"type": "error", "message": "weights missing"}), flush=True)
-"#,
-        );
-        let _python = EnvGuard::set("CAPRICE_STT_PYTHON", None);
-        let _worker = EnvGuard::set("CAPRICE_STT_WORKER", script.to_str());
-        let state = SpeechState::new();
-        assert_eq!(
-            speech_transcribe(&state, "/tmp/clip.wav".into()).unwrap_err(),
-            "weights missing"
-        );
-        assert!(worker_pid(&state).is_none());
-    }
-
-    #[test]
-    fn worker_response_id_must_match() {
-        let _lock = env_lock();
-        let dir = TempDir::new("mismatch");
-        let script = write_script(
-            &dir.0,
-            r#"
-import json, sys
-print(json.dumps({"type": "ready", "device": "cuda", "compute": "float16"}), flush=True)
-sys.stdin.readline()
-print(json.dumps({"id": "other", "text": "nope"}), flush=True)
-"#,
-        );
-        let _python = EnvGuard::set("CAPRICE_STT_PYTHON", None);
-        let _worker = EnvGuard::set("CAPRICE_STT_WORKER", script.to_str());
-        let state = SpeechState::new();
-        assert_eq!(
-            speech_transcribe(&state, "/tmp/clip.wav".into()).unwrap_err(),
-            "speech worker response did not match"
-        );
-    }
-
-    #[test]
-    fn worker_exit_is_reported() {
-        let _lock = env_lock();
-        let dir = TempDir::new("exit");
-        let script = write_script(
-            &dir.0,
-            r#"
-import json, sys
-print(json.dumps({"type": "ready", "device": "cpu", "compute": "int8"}), flush=True)
-sys.exit(0)
-"#,
-        );
-        let _python = EnvGuard::set("CAPRICE_STT_PYTHON", None);
-        let _worker = EnvGuard::set("CAPRICE_STT_WORKER", script.to_str());
-        let state = SpeechState::new();
-        assert_eq!(
-            speech_transcribe(&state, "/tmp/clip.wav".into()).unwrap_err(),
-            "speech worker exited"
-        );
-        assert!(worker_pid(&state).is_none());
-    }
-
-    #[test]
-    fn dead_worker_is_replaced_on_the_next_request() {
-        let _lock = env_lock();
-        let dir = TempDir::new("respawn");
-        let count = dir.0.join("count.txt");
-        let clip = dir.0.join("clip.wav");
-        std::fs::write(&count, "0").expect("count");
-        std::fs::write(&clip, b"wav").expect("clip");
-        let script = write_script(
-            &dir.0,
-            r#"
-import json, os, sys
-count_path = os.environ["CAPRICE_STT_COUNT"]
-count = int(open(count_path, encoding="utf-8").read())
-open(count_path, "w", encoding="utf-8").write(str(count + 1))
-print(json.dumps({"type": "ready", "device": "cpu", "compute": "int8"}), flush=True)
-if count == 0:
-    sys.exit(0)
-while True:
-    line = sys.stdin.readline()
-    if line == "":
-        break
-    req = json.loads(line)
-    if os.path.isfile(req["path"]):
-        print(json.dumps({"id": req["id"], "text": "heard"}), flush=True)
-    else:
-        print(json.dumps({"id": req["id"], "error": "missing"}), flush=True)
-    if count == 1:
-        sys.exit(0)
-"#,
-        );
-        let _python = EnvGuard::set("CAPRICE_STT_PYTHON", None);
-        let _worker = EnvGuard::set("CAPRICE_STT_WORKER", script.to_str());
-        let _count = EnvGuard::set("CAPRICE_STT_COUNT", count.to_str());
-        let state = SpeechState::new();
-        let clip_path = clip.to_string_lossy().into_owned();
-        assert_eq!(
-            speech_transcribe(&state, clip_path.clone()).unwrap_err(),
-            "speech worker exited"
-        );
-        assert!(worker_pid(&state).is_none());
-        assert_eq!(
-            speech_transcribe(&state, clip_path.clone()).unwrap(),
-            "heard"
-        );
-        let dying = worker_pid(&state).expect("answered once");
-        wait_until_exited(dying);
-        let replaced = speech_transcribe(&state, clip_path.clone()).unwrap();
-        assert_eq!(replaced, "heard");
-        let pid = worker_pid(&state).expect("respawned");
-        assert_eq!(speech_transcribe(&state, clip_path).unwrap(), "heard");
-        assert_eq!(worker_pid(&state), Some(pid));
-        assert_eq!(std::fs::read_to_string(count).expect("count"), "3");
-    }
-
-    #[test]
-    fn bundled_worker_reports_a_missing_model() {
-        let _lock = env_lock();
-        let script = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../../speech/worker.py");
-        assert!(script.is_file());
-        let _python = EnvGuard::set("CAPRICE_STT_PYTHON", None);
-        let _worker = EnvGuard::set("CAPRICE_STT_WORKER", script.to_str());
         let _model = EnvGuard::set("CAPRICE_STT_MODEL", None);
-        let _device = EnvGuard::set("CAPRICE_STT_DEVICE", None);
         let state = SpeechState::new();
         assert_eq!(
             speech_transcribe(&state, "/tmp/clip.wav".into()).unwrap_err(),
             "CAPRICE_STT_MODEL is not set"
         );
-        assert!(worker_pid(&state).is_none());
+        assert_eq!(
+            speech_listen_stop(&state).unwrap_err(),
+            "CAPRICE_STT_MODEL is not set"
+        );
+    }
+
+    #[test]
+    fn blank_stt_model_is_missing() {
+        let _lock = env_lock();
+        let _model = EnvGuard::set("CAPRICE_STT_MODEL", Some("   "));
+        let state = SpeechState::new();
+        assert_eq!(
+            speech_transcribe(&state, "/tmp/clip.wav".into()).unwrap_err(),
+            "CAPRICE_STT_MODEL is not set"
+        );
     }
 
     #[test]
     fn listen_stop_when_idle() {
         let _lock = env_lock();
-        let _worker = EnvGuard::set("CAPRICE_STT_WORKER", Some("/tmp/caprice-not-a-worker.py"));
+        let _model = EnvGuard::set("CAPRICE_STT_MODEL", Some("/tmp/caprice-parakeet"));
         let state = SpeechState::new();
         assert_eq!(speech_listen_stop(&state).unwrap_err(), "not listening");
-        assert!(worker_pid(&state).is_none());
+    }
+
+    #[test]
+    fn model_stays_loaded_across_requests() {
+        let mut slot = None;
+        let mut loads = 0;
+        let first = with_resident(
+            &mut slot,
+            || {
+                loads += 1;
+                Ok(7_u8)
+            },
+            |model| Ok(model.to_string()),
+        )
+        .unwrap();
+        let second = with_resident(
+            &mut slot,
+            || {
+                loads += 1;
+                Ok(9_u8)
+            },
+            |model| Ok(model.to_string()),
+        )
+        .unwrap();
+        assert_eq!(first, "7");
+        assert_eq!(second, "7");
+        assert_eq!(loads, 1);
+    }
+
+    #[test]
+    fn a_failed_load_does_not_stick() {
+        let mut slot: Option<u8> = None;
+        let err = with_resident(
+            &mut slot,
+            || Err("CAPRICE_STT_MODEL is not set".to_string()),
+            |model| Ok(*model),
+        )
+        .unwrap_err();
+        assert_eq!(err, "CAPRICE_STT_MODEL is not set");
+        assert!(slot.is_none());
+    }
+
+    #[test]
+    fn resample_doubles_an_integer_rate() {
+        let out = resample_linear(&[0.0, 1.0], 8_000, 16_000);
+        assert_eq!(out.len(), 4);
+        assert!((out[0] - 0.0).abs() < 0.001);
+        assert!((out[1] - 0.5).abs() < 0.001);
+        assert!((out[2] - 1.0).abs() < 0.001);
+        assert!((out[3] - 1.0).abs() < 0.001);
+        assert_eq!(resample_linear(&[0.25], 16_000, 16_000), vec![0.25]);
+        assert!(resample_linear(&[], 48_000, 16_000).is_empty());
+    }
+
+    #[test]
+    fn wav_round_trip_keeps_rate_and_pcm() {
+        let bytes = encode_wav(16_000, &[0.0, 1.0, -1.0]);
+        let (rate, samples) = decode_wav(&bytes).unwrap();
+        assert_eq!(rate, 16_000);
+        assert_eq!(samples.len(), 3);
+        assert!((samples[0]).abs() < 0.001);
+        assert!((samples[1] - 1.0).abs() < 0.001);
+        assert!((samples[2] + 1.0).abs() < 0.001);
+        assert_eq!(
+            decode_wav(b"not-a-wav").unwrap_err(),
+            "wav must be 16-bit mono pcm"
+        );
     }
 
     #[test]
