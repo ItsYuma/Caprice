@@ -83,3 +83,26 @@ The window talks to whatever chat endpoint the environment names. Set both of th
 | `CAPRICE_MODEL_API_KEY` | Optional bearer token. Omit it when the endpoint does not need one |
 
 Inside the Tauri window, Rust reads those variables when the page asks and posts the chat body. A page opened outside Tauri gets the same names through Vite and posts itself, so that endpoint must allow the page origin. `packages/core` does not read the environment and does not open files.
+
+## Voice
+
+Hold Alt+Space while the Caprice window is focused, or hold the button. Release to send. The chord is `talkChord` in `packages/desktop/src/talk.ts`. It is a window shortcut, so it does not register a global hotkey. A window manager that already owns Alt+Space can swallow the chord before the page sees it. The button still works. WebKitGTK does not matter for speech.
+
+`listenAndSay` waits for `listen`, then runs `say`, then the speaker. The listener is `captureListener`. Inside the Tauri window, Rust records the default microphone and a resident worker transcribes a wav path. The worker is a Python process. Protocol is JSON lines on stdin/stdout. It loads once and stays up until the window process exits. The page calls `speech_listen_start`, `speech_listen_stop`, and `speech_speak`. `scriptedListener` and `recordingSpeaker` stay for tests.
+
+| Variable               | What it is                                                         |
+| ---------------------- | ------------------------------------------------------------------ |
+| `CAPRICE_STT_WORKER`   | Script path                                                        |
+| `CAPRICE_STT_PYTHON`   | Interpreter override. The shell uses `python3` when this is unset  |
+| `CAPRICE_STT_MODEL`    | Required by that script                                            |
+| `CAPRICE_STT_DEVICE`   | `auto`, `cpu`, or `cuda`. The script uses auto when unset          |
+| `CAPRICE_STT_COMPUTE`  | GPU uses float16 and CPU uses int8 unless this is set              |
+| `CAPRICE_STT_LANGUAGE` | Optional                                                           |
+| `CAPRICE_TTS_URL`      | Full URL for a JSON body `{ model, input }`                        |
+| `CAPRICE_TTS_MODEL`    | Model name sent in that body                                       |
+| `CAPRICE_TTS_VOICE`    | Optional `voice` field. Omit the field when this is empty          |
+| `CAPRICE_TTS_API_KEY`  | Optional bearer token. Omit it when the endpoint does not need one |
+
+No microphone name, sample rate, host, or model id is hardcoded. Caprice does not shell out to Handy or Parakeet and does not use the Web Speech API.
+
+Spoken replies need `CAPRICE_TTS_URL` and `CAPRICE_TTS_MODEL`. Rust posts inside the window. The page plays the bytes. There is no resident TTS model. Outside Tauri the page does not invoke. Listening fails because the speech worker is unavailable. Speaking uses `fetch` only when both TTS variables are set, and otherwise rejects with `speech is not configured`.
