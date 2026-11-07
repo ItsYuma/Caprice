@@ -126,7 +126,7 @@ pub fn run() {
             speech_transcribe,
             speech_listen_start,
             speech_listen_stop,
-            speech::speech_speak,
+            speech::speak::speech_speak,
         ])
         .run(tauri::generate_context!())
         .expect("error while running caprice");
