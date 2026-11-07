@@ -25,18 +25,23 @@ Stable Bun 1.4.4 has `bun test`, `bun fmt`, and `bun check`. `bun lint` in that 
 
 ## Layout
 
-| Path                     | Owns                                        |
-| ------------------------ | ------------------------------------------- |
-| `packages/core`          | `Session`, `Model`, `Tool`, persona slicing |
-| `packages/voice`         | `Listener` and `Speaker`                    |
-| `packages/desktop`       | Tauri window and `sayAndSpeak`              |
-| `skills/`                | Text the local model reads                  |
-| `docs/architecture.md`   | The diagram and the dependency rule         |
-| `CAPRI.md`               | Character facts the product may use         |
-| `MILESTONES.md`          | What is next                                |
-| `tools/oxlint/anti-slop` | Vendored upstream. Do not restyle it        |
+| Path                         | Owns                                            |
+| ---------------------------- | ----------------------------------------------- |
+| `packages/core`              | `Session`, `Model`, `Tool`, persona slicing     |
+| `packages/voice`             | `Listener` and `Speaker`                        |
+| `packages/desktop`           | Tauri window and `sayAndSpeak`                  |
+| `skills/`                    | Text the local model reads                      |
+| `docs/architecture.md`       | The diagram and the dependency rule             |
+| `docs/technical-directions/` | A decision later work would guess wrong without |
+| `CAPRI.md`                   | Character facts the product may use             |
+| `MILESTONES.md`              | What is next                                    |
+| `tools/oxlint/anti-slop`     | Vendored upstream. Do not restyle it            |
 
 `packages/core` does not import `packages/voice` or `packages/desktop`. `packages/voice` does not import the other packages. The shell is the only composer. Rust opens the window. It does not own the session.
+
+## Files
+
+A file owns one job. Split it when a second job shows up: tests apart from the runtime, a new engine apart from capture, an HTTP client apart from the microphone. Rust tests for a module live in a sibling file included with `#[cfg(test)]`, so the implementation file stays the runtime. Leave a file together when the pieces are one behavior and splitting them would make that behavior harder to read.
 
 ## Docs
 
@@ -44,10 +49,13 @@ Update the doc that owns the fact in the same change that moves it.
 
 - A command, a package, or a working rule: `AGENTS.md`
 - A boundary or the diagram: `docs/architecture.md`
+- A technical decision: `docs/technical-directions/`
 - Her voice or a limit copied from the show: `CAPRI.md` and the skill under `skills/`
 - Sequence of work: `MILESTONES.md`
 
-Do not add a markdown file for a fact one of those can hold. A new doc needs a reason those cannot. Prefer one mermaid diagram updated in place over a new drawing. No design diaries, no changelog docs, no per-package essays.
+Record a decision when the choice is between real alternatives and a later change would guess wrong without the note. One file per decision. Name it for the choice. State what was chosen, why, and what was set aside. Do not restate `docs/architecture.md`. Update the note when the choice changes. Delete it when the choice is gone.
+
+Do not add a markdown file for a fact one of those can hold. Prefer one mermaid diagram updated in place over a new drawing. No design diaries, no changelog docs, no per-package essays.
 
 ## Comments
 
