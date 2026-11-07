@@ -23,7 +23,16 @@ Done.
 
 ## 2. Voice
 
-A real `Listener` and `Speaker`. Push to talk in the window. `listen` feeds `say`.
+Done.
+
+- Hold Alt+Space while the window is focused, or hold the button. Release sends the transcript
+- `listenAndSay` passes that text to `say`, then the page plays the capri line
+- The listener is `captureListener`. Inside the Tauri window, Rust records the default microphone and transcribes it with Parakeet. The ONNX model loads once in that process and stays until the window exits
+- `CAPRICE_STT_MODEL` is the Parakeet model directory. The shell loads the int8 weights. No model path is hardcoded
+- Spoken replies need `CAPRICE_TTS_URL` and `CAPRICE_TTS_MODEL`. Optional `CAPRICE_TTS_VOICE` and `CAPRICE_TTS_API_KEY`. Rust posts inside the window. The page plays the bytes. There is no resident TTS model
+- `scriptedListener` and `recordingSpeaker` stay for tests
+- No microphone name, sample rate, host, or model id is hardcoded. Caprice does not shell out to Handy or Parakeet and does not use the Web Speech API
+- WebKitGTK does not matter for speech. A window manager can still steal Alt+Space. The button still works
 
 ## 3. One computer tool
 

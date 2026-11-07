@@ -7,9 +7,14 @@ Annoying desktop companion inspired by Capri from _Cyberpunk: Edgerunners 2_. Sh
 ```sh
 bun install
 bun test
-CAPRICE_MODEL_URL=http://your-brain/v1/chat/completions CAPRICE_MODEL=your-model bun run dev
+CAPRICE_MODEL_URL=http://your-brain/v1/chat/completions \
+CAPRICE_MODEL=your-model \
+CAPRICE_STT_MODEL=/path/to/parakeet-model \
+CAPRICE_TTS_URL=http://your-voice/v1/audio/speech \
+CAPRICE_TTS_MODEL=your-tts \
+bun run dev
 ```
 
-`CAPRICE_MODEL_URL` and `CAPRICE_MODEL` are required. Nothing in the repo picks them for you.
+`CAPRICE_MODEL_URL` and `CAPRICE_MODEL` are required. Hearing needs `CAPRICE_STT_MODEL`, a directory of Parakeet ONNX files. The shell loads those int8 weights once and keeps them. Spoken replies also need `CAPRICE_TTS_URL` and `CAPRICE_TTS_MODEL`. Nothing in the repo picks a host, a port, or a model path.
 
-How the repo is put together: `AGENTS.md` and `docs/architecture.md`. Who she is allowed to be: `CAPRI.md`. What is next: `MILESTONES.md`.
+How the repo is put together: `AGENTS.md` and `docs/architecture.md`. Why each model lives where it does: `docs/technical-directions/`. Who she is allowed to be: `CAPRI.md`. What is next: `MILESTONES.md`.
