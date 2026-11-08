@@ -1,3 +1,5 @@
+import { ok, type Result } from "./result.ts";
+
 export type Who = "host" | "capri";
 
 export type Line = {
@@ -16,7 +18,7 @@ export type ModelReply = {
 };
 
 export type Model = {
-  reply: (turn: ModelTurn) => Promise<ModelReply>;
+  reply: (turn: ModelTurn) => Promise<Result<ModelReply>>;
 };
 
 export type Tool = {
@@ -27,7 +29,7 @@ export type Tool = {
 export type Session = {
   lines: () => readonly Line[];
   tools: () => readonly Tool[];
-  say: (hostText: string) => Promise<Line>;
+  say: (hostText: string) => Promise<Result<Line>>;
 };
 
 export function openSession(
@@ -49,10 +51,14 @@ export function openSession(
         hostText,
       });
 
-      const capriLine: Line = { who: "capri", text: reply.text };
+      if (!reply.ok) {
+        return reply;
+      }
+
+      const capriLine: Line = { who: "capri", text: reply.value.text };
       lines.push(capriLine);
 
-      return capriLine;
+      return ok(capriLine);
     },
   };
 }
@@ -60,7 +66,7 @@ export function openSession(
 export function stubModel(): Model {
   return {
     async reply(turn) {
-      return { text: `No model yet. You said: ${turn.hostText}` };
+      return ok({ text: `No model yet. You said: ${turn.hostText}` });
     },
   };
 }

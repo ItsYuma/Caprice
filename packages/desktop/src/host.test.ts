@@ -9,7 +9,13 @@ test("sayAndSpeak speaks the capri line", async () => {
   const recording = recordingSpeaker();
   const line = await sayAndSpeak(session, recording.speaker, "yo");
 
-  expect(recording.spoken()).toEqual([line.text]);
+  expect(line.ok).toBe(true);
+
+  if (!line.ok) {
+    return;
+  }
+
+  expect(recording.spoken()).toEqual([line.value.text]);
 });
 
 test("listenAndSay feeds the heard line to say and speaks the reply", async () => {
@@ -22,7 +28,10 @@ test("listenAndSay feeds the heard line to say and speaks the reply", async () =
     recording.speaker,
   );
 
-  expect(line).toEqual({ who: "capri", text: "No model yet. You said: yo" });
+  expect(line).toEqual({
+    ok: true,
+    value: { who: "capri", text: "No model yet. You said: yo" },
+  });
   expect(session.lines()).toEqual([
     { who: "host", text: "yo" },
     { who: "capri", text: "No model yet. You said: yo" },

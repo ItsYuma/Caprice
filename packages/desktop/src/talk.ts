@@ -108,34 +108,44 @@ export function holdToTalk(
   };
 }
 
-export function bindTalk(hold: TalkHold): void {
-  window.addEventListener("keydown", (event) => {
+export function bindTalk(hold: TalkHold): () => void {
+  const down = (event: Event) => {
     if (!(event instanceof KeyboardEvent) || !isTalkChord(event)) {
       return;
     }
 
     event.preventDefault();
     hold.press();
-  });
+  };
 
-  window.addEventListener("keyup", (event) => {
+  const up = (event: Event) => {
     if (!(event instanceof KeyboardEvent) || !isTalkRelease(event)) {
       return;
     }
 
     hold.release();
-  });
+  };
 
-  window.addEventListener("blur", () => {
+  const blur = () => {
     hold.release();
-  });
+  };
+
+  window.addEventListener("keydown", down);
+  window.addEventListener("keyup", up);
+  window.addEventListener("blur", blur);
+
+  return () => {
+    window.removeEventListener("keydown", down);
+    window.removeEventListener("keyup", up);
+    window.removeEventListener("blur", blur);
+  };
 }
 
 export function bindTalkButton(
   button: HTMLButtonElement,
   hold: TalkHold,
-): void {
-  button.addEventListener("pointerdown", (event) => {
+): () => void {
+  const down = (event: Event) => {
     if (!(event instanceof PointerEvent) || event.button !== 0) {
       return;
     }
@@ -143,12 +153,19 @@ export function bindTalkButton(
     event.preventDefault();
     button.setPointerCapture(event.pointerId);
     hold.press();
-  });
+  };
 
   const release = () => {
     hold.release();
   };
 
+  button.addEventListener("pointerdown", down);
   button.addEventListener("pointerup", release);
   button.addEventListener("pointercancel", release);
+
+  return () => {
+    button.removeEventListener("pointerdown", down);
+    button.removeEventListener("pointerup", release);
+    button.removeEventListener("pointercancel", release);
+  };
 }

@@ -1,5 +1,6 @@
 import { expect, test } from "bun:test";
 
+import { ok } from "./result.ts";
 import { openSession, stubModel, type Model, type Tool } from "./session.ts";
 
 test("say records the host line and the capri line", async () => {
@@ -9,7 +10,7 @@ test("say records the host line and the capri line", async () => {
     async reply(turn) {
       persona = turn.persona;
 
-      return { text: "hi" };
+      return ok({ text: "hi" });
     },
   };
 
@@ -17,7 +18,7 @@ test("say records the host line and the capri line", async () => {
   const line = await session.say("wake up");
 
   expect(persona).toBe("be capri");
-  expect(line).toEqual({ who: "capri", text: "hi" });
+  expect(line).toEqual({ ok: true, value: { who: "capri", text: "hi" } });
   expect(session.lines()).toEqual([
     { who: "host", text: "wake up" },
     { who: "capri", text: "hi" },
@@ -33,7 +34,9 @@ test("lines and tools are copies", async () => {
   };
 
   const session = openSession("p", stubModel(), [tool]);
-  await session.say("a");
+  const said = await session.say("a");
+
+  expect(said.ok).toBe(true);
   const lines = session.lines();
   const tools = session.tools();
 
@@ -47,5 +50,11 @@ test("stub model quotes the host", async () => {
   const session = openSession("p", stubModel(), []);
   const line = await session.say("hello");
 
-  expect(line.text).toContain("hello");
+  expect(line.ok).toBe(true);
+
+  if (!line.ok) {
+    return;
+  }
+
+  expect(line.value.text).toContain("hello");
 });

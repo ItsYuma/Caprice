@@ -1,3 +1,4 @@
+import { ok, tryCatch, type Result } from "./result.ts";
 import type { Model, ModelTurn } from "./session.ts";
 
 export type ChatRole = "system" | "user" | "assistant";
@@ -12,7 +13,7 @@ export type ChatCompletion = {
 };
 
 export type ChatClient = {
-  complete: (completion: ChatCompletion) => Promise<string>;
+  complete: (completion: ChatCompletion) => Promise<Result<string>>;
 };
 
 export type ModelEnv = {
@@ -31,7 +32,7 @@ export type HttpPost = (
   url: string,
   body: string,
   apiKey: string,
-) => Promise<string>;
+) => Promise<Result<string>>;
 
 type JsonRecord = {
   readonly [key: string]: JsonValue;
@@ -68,7 +69,11 @@ export function chatModel(client: ChatClient): Model {
     async reply(turn) {
       const text = await client.complete({ messages: messagesFromTurn(turn) });
 
-      return { text };
+      if (!text.ok) {
+        return text;
+      }
+
+      return ok({ text: text.value });
     },
   };
 }
@@ -92,11 +97,19 @@ export function httpChatClient(
         messages: completion.messages,
       });
 
-      const raw = await post(endpoint.url, body, endpoint.apiKey);
+      const posted = await post(endpoint.url, body, endpoint.apiKey);
 
-      return readAssistantContent(raw);
+      if (!posted.ok) {
+        return posted;
+      }
+
+      return tryCatch(parseAssistant(posted.value), "the model request failed");
     },
   };
+}
+
+async function parseAssistant(raw: string): Promise<string> {
+  return readAssistantContent(raw);
 }
 
 function required(name: string, value: string | undefined): string {
@@ -109,7 +122,15 @@ function required(name: string, value: string | undefined): string {
   return text;
 }
 
-async function postJson(
+export function postJson(
+  url: string,
+  body: string,
+  apiKey: string,
+): Promise<Result<string>> {
+  return tryCatch(fetchText(url, body, apiKey), "the model request failed");
+}
+
+async function fetchText(
   url: string,
   body: string,
   apiKey: string,
