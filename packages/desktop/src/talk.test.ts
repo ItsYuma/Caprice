@@ -11,13 +11,13 @@ import {
   holdToTalk,
   isTalkChord,
   isTalkRelease,
-  talkChord,
   talkChordLabel,
+  talkChordShortcuts,
   type TalkPhase,
 } from "./talk.ts";
 
 const chord = {
-  code: talkChord.code,
+  code: "Space",
   altKey: true,
   ctrlKey: false,
   metaKey: false,
@@ -26,16 +26,19 @@ const chord = {
 };
 
 test("the talk chord is named once", () => {
-  expect(talkChordLabel()).toBe("Alt+Space");
+  expect(talkChordLabel()).toBe("Alt+Space or Ctrl+Space");
+  expect(talkChordShortcuts()).toBe("Alt+Space Control+Space");
   expect(isTalkChord(chord)).toBe(true);
+  expect(isTalkChord({ ...chord, altKey: false, ctrlKey: true })).toBe(true);
   expect(isTalkChord({ ...chord, altKey: false })).toBe(false);
-  expect(isTalkChord({ ...chord, code: "KeyK" })).toBe(false);
   expect(isTalkChord({ ...chord, ctrlKey: true })).toBe(false);
+  expect(isTalkChord({ ...chord, code: "KeyK" })).toBe(false);
   expect(isTalkChord({ ...chord, metaKey: true })).toBe(false);
   expect(isTalkChord({ ...chord, shiftKey: true })).toBe(false);
   expect(isTalkChord({ ...chord, repeat: true })).toBe(false);
-  expect(isTalkRelease({ code: talkChord.code, key: " " })).toBe(true);
+  expect(isTalkRelease({ code: "Space", key: " " })).toBe(true);
   expect(isTalkRelease({ code: "AltLeft", key: "Alt" })).toBe(true);
+  expect(isTalkRelease({ code: "ControlLeft", key: "Control" })).toBe(true);
   expect(isTalkRelease({ code: "KeyA", key: "a" })).toBe(false);
 });
 

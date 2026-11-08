@@ -1,9 +1,21 @@
 import type { PushListener } from "@caprice/voice";
 
-export const talkChord = {
-  code: "Space",
-  altKey: true,
-} as const;
+export const talkChords = [
+  {
+    code: "Space",
+    altKey: true,
+    ctrlKey: false,
+    label: "Alt+Space",
+    shortcut: "Alt+Space",
+  },
+  {
+    code: "Space",
+    altKey: false,
+    ctrlKey: true,
+    label: "Ctrl+Space",
+    shortcut: "Control+Space",
+  },
+] as const;
 
 export type TalkKey = {
   code: string;
@@ -28,37 +40,42 @@ export type TalkHold = {
 };
 
 export function talkChordLabel(): string {
-  const key = talkChord.code === "Space" ? "Space" : talkChord.code;
+  return talkChords.map((chord) => chord.label).join(" or ");
+}
 
-  if (talkChord.altKey) {
-    return `Alt+${key}`;
-  }
-
-  return key;
+export function talkChordShortcuts(): string {
+  return talkChords.map((chord) => chord.shortcut).join(" ");
 }
 
 export function isTalkChord(event: TalkKey): boolean {
-  return (
-    event.code === talkChord.code &&
-    event.altKey === talkChord.altKey &&
-    !event.ctrlKey &&
-    !event.metaKey &&
-    !event.shiftKey &&
-    !event.repeat
+  return talkChords.some(
+    (chord) =>
+      event.code === chord.code &&
+      event.altKey === chord.altKey &&
+      event.ctrlKey === chord.ctrlKey &&
+      !event.metaKey &&
+      !event.shiftKey &&
+      !event.repeat,
   );
 }
 
 export function isTalkRelease(event: TalkRelease): boolean {
-  if (event.code === talkChord.code) {
+  if (talkChords.some((chord) => event.code === chord.code)) {
     return true;
   }
 
-  if (!talkChord.altKey) {
-    return false;
-  }
+  const alt =
+    event.key === "Alt" ||
+    event.code === "AltLeft" ||
+    event.code === "AltRight";
 
-  return (
-    event.key === "Alt" || event.code === "AltLeft" || event.code === "AltRight"
+  const control =
+    event.key === "Control" ||
+    event.code === "ControlLeft" ||
+    event.code === "ControlRight";
+
+  return talkChords.some(
+    (chord) => (chord.altKey && alt) || (chord.ctrlKey && control),
   );
 }
 

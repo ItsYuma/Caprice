@@ -17,12 +17,15 @@ test("the window is the box and hides the conversation", () => {
       problem="the model request failed"
       hold={undefined}
       talkPhase="idle"
-      hint="Hold Alt+Space. Release to send."
+      hint="Hold Alt+Space or Ctrl+Space. Release to send."
       credit="Voice by Underdog Woof"
     />,
   );
 
-  expect(html).toContain('title="Hold Alt+Space. Release to send."');
+  expect(html).toContain(
+    'title="Hold Alt+Space or Ctrl+Space. Release to send."',
+  );
+  expect(html).toContain('aria-keyshortcuts="Alt+Space Control+Space"');
   expect(html).toContain('aria-label="Hold to talk"');
   expect(html).toContain('aria-label="Close"');
   expect(html).toContain("data-tauri-drag-region");

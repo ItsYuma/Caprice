@@ -3,7 +3,7 @@ import { useEffect, useRef, useState } from "react";
 import { amplitudeAt, subscribePlayback, type Frame } from "./playback.ts";
 import {
   bindTalkButton,
-  talkChordLabel,
+  talkChordShortcuts,
   type TalkHold,
   type TalkPhase,
 } from "./talk.ts";
@@ -65,7 +65,7 @@ export function Presence(props: PresenceProps) {
       data-phase={props.phase}
       data-mode={mode}
       aria-label="Hold to talk"
-      aria-keyshortcuts={talkChordLabel()}
+      aria-keyshortcuts={talkChordShortcuts()}
       title={props.hint}
     >
       <div className="hud">
