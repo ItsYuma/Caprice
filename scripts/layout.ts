@@ -23,6 +23,7 @@ export type CapriceConfig = {
   ttsVoice: string;
   python: string;
   repo: string;
+  container: string;
 };
 
 export type SetupArgs = {
@@ -32,6 +33,7 @@ export type SetupArgs = {
   voice: string;
   dataDir: string;
   python: string;
+  container: string;
   help: boolean;
 };
 
@@ -180,6 +182,7 @@ export function parseSetupArgs(argv: readonly string[]): SetupArgs | string {
     voice: "",
     dataDir: "",
     python: "",
+    container: "",
     help: false,
   };
 
@@ -251,6 +254,15 @@ export function parseSetupArgs(argv: readonly string[]): SetupArgs | string {
       continue;
     }
 
+    const container = flagValue(token, next, "--container");
+
+    if (container !== undefined) {
+      args.container = container.value.trim();
+      index += container.ate;
+
+      continue;
+    }
+
     return `unknown argument: ${token}`;
   }
 
@@ -309,6 +321,7 @@ export function readConfig(text: string): CapriceConfig | undefined {
     ttsVoice: readString(parsed, "ttsVoice") ?? "",
     python: readString(parsed, "python") ?? "",
     repo: readString(parsed, "repo") ?? "",
+    container: readString(parsed, "container") ?? "",
   };
 }
 
@@ -316,7 +329,14 @@ export function shellQuote(value: string): string {
   return `'${value.replaceAll("'", "'\\''")}'`;
 }
 
-export function posixLauncher(repo: string): string {
+export function posixLauncher(repo: string, container: string): string {
+  if (container.length > 0) {
+    return `#!/bin/sh
+set -eu
+${containerCommand(repo, container, blankLaunch())}
+`;
+  }
+
   return `#!/bin/sh
 set -eu
 export PATH="$HOME/.bun/bin:$PATH"
@@ -333,12 +353,42 @@ bun run dev
 `;
 }
 
-export function launcherText(platform: Platform, repo: string): string {
+export function launcherText(
+  platform: Platform,
+  repo: string,
+  container: string,
+): string {
   if (platform === "windows") {
     return windowsLauncher(repo);
   }
 
-  return posixLauncher(repo);
+  return posixLauncher(repo, container);
+}
+
+export function containerCommand(
+  repo: string,
+  container: string,
+  env: LaunchEnv,
+): string {
+  const inner = [
+    "export CAPRICE_CONTAINER=1",
+    'export PATH="$HOME/.bun/bin:$HOME/.cargo/bin:$PATH"',
+    exportEnv("CAPRICE_MODEL_URL", env.modelUrl),
+    exportEnv("CAPRICE_MODEL", env.model),
+    exportEnv("CAPRICE_MODEL_API_KEY", env.modelApiKey),
+    exportEnv("CAPRICE_STT_ENGINE", env.sttEngine),
+    exportEnv("CAPRICE_STT_MODEL", env.sttModel),
+    exportEnv("CAPRICE_TTS_ENGINE", env.ttsEngine),
+    exportEnv("CAPRICE_TTS_WOOF", env.ttsWoof),
+    exportEnv("CAPRICE_TTS_VOICE", env.ttsVoice),
+    exportEnv("CAPRICE_PYTHON", env.python),
+    `cd ${shellQuote(repo)}`,
+    "exec bun run dev",
+  ]
+    .filter((line) => line.length > 0)
+    .join("; ");
+
+  return `export PATH="$HOME/.local/bin:$PATH"; exec distrobox enter ${shellQuote(container)} -- bash -lc ${shellQuote(inner)}`;
 }
 
 export type LaunchEnv = {
@@ -390,11 +440,37 @@ Windows:
 --voice           juno or mira. Empty means juno.
 --data-dir        Where models, Python, and config.json go.
 --python          System Python used to create the virtual environment.
+--container       Fedora container name. Rocky Linux 9 uses caprice.
 --skip-system     Do not install OS packages.
 --help            Show this text.
 
+Rocky Linux 9, RHEL 9, and AlmaLinux 9 ship WebKitGTK 4.0. The window needs 4.1, so the installer continues in a Fedora container and bun run dev enters it.
+
 Then, from the repo, run bun run dev. The first launch compiles the window.
 `;
+
+function blankLaunch(): LaunchEnv {
+  return {
+    modelUrl: "",
+    model: "",
+    modelApiKey: "",
+    sttEngine: "",
+    sttModel: "",
+    ttsEngine: "",
+    ttsWoof: "",
+    ttsVoice: "",
+    python: "",
+    path: "",
+  };
+}
+
+function exportEnv(name: string, value: string): string {
+  if (value.length === 0) {
+    return "";
+  }
+
+  return `export ${name}=${shellQuote(value)}`;
+}
 
 function prefer(current: string, saved: string): string {
   const chosen = current.trim();

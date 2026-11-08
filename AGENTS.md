@@ -24,6 +24,8 @@ From the repo root, with Bun 1.4.4:
 
 The shell needs Rust 1.99.1. Tauri 2.12 does not build on 1.83. `packages/desktop/src-tauri/rust-toolchain.toml` selects it.
 
+Rocky Linux 9, RHEL 9, and AlmaLinux 9 ship WebKitGTK 4.0. The window links WebKitGTK 4.1. `scripts/install.sh` installs Podman and distrobox, creates a Fedora container named `caprice`, and finishes setup inside it. `config.json` records that container. `bun run dev` enters it.
+
 Stable Bun 1.4.4 has `bun test`, `bun fmt`, and `bun check`. `bun lint` in that release is only a package script, so lint is Oxlint until a stable Bun ships the linter. When that lands, point `lint` at `bun lint` and keep the same rules.
 
 ## Layout

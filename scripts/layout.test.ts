@@ -5,6 +5,7 @@ import {
   barkFileNames,
   capriceDataDir,
   configText,
+  containerCommand,
   filled,
   launchEnv,
   launcherPath,
@@ -38,6 +39,7 @@ function sample(repo: string): CapriceConfig {
     ttsVoice: "mira",
     python: "/data/caprice/python/bin/python3",
     repo,
+    container: "",
   };
 }
 
@@ -100,7 +102,18 @@ test("arguments accept flags and reject a voice the shell does not know", () => 
     voice: "",
     dataDir: "",
     python: "",
+    container: "",
     help: true,
+  });
+  expect(parseSetupArgs(["--container", "caprice"])).toEqual({
+    modelUrl: "",
+    model: "",
+    modelApiKey: "",
+    voice: "",
+    dataDir: "",
+    python: "",
+    container: "caprice",
+    help: false,
   });
 });
 
@@ -116,20 +129,27 @@ test("config json round-trips and the launcher returns to the repo", () => {
   const read = readConfig(text);
 
   expect(read).toEqual(config);
+  expect(readConfig('{"modelUrl":"u"}')?.container).toBe("");
   expect(readConfig("{")).toBeUndefined();
   expect(readConfig("[]")).toBeUndefined();
   expect(missingNames(["config.json"], barkFileNames)).toEqual([
     "tokenizer.json",
     "model.safetensors",
   ]);
-  expect(launcherText("linux", "/work/caprice")).toContain(
+  expect(launcherText("linux", "/work/caprice", "")).toContain(
     "cd '/work/caprice'",
   );
-  expect(launcherText("linux", "/work/o'hara")).toContain(
+  expect(launcherText("linux", "/work/o'hara", "")).toContain(
     "cd '/work/o'\\''hara'",
   );
-  expect(launcherText("windows", "C:\\work\\caprice")).toContain(
+  expect(launcherText("windows", "C:\\work\\caprice", "caprice")).toContain(
     "Set-Location -LiteralPath 'C:\\work\\caprice'",
+  );
+  expect(launcherText("linux", "/work/caprice", "caprice")).toContain(
+    "distrobox enter 'caprice'",
+  );
+  expect(launcherText("linux", "/work/caprice", "caprice")).toContain(
+    "export CAPRICE_CONTAINER=1",
   );
 });
 
@@ -156,4 +176,10 @@ test("a shell variable wins over the saved config and python stays on PATH", () 
   expect(merged.ttsVoice).toBe("mira");
   expect(merged.python).toBe("/data/caprice/python/bin/python3");
   expect(merged.path).toBe("/data/caprice/python/bin:/usr/bin");
+  expect(containerCommand("/work/caprice", "caprice", merged)).toContain(
+    "CAPRICE_MODEL_URL='\\''http://other.example/v1/chat/completions'\\''",
+  );
+  expect(containerCommand("/work/caprice", "caprice", merged)).toContain(
+    "CAPRICE_PYTHON='\\''/data/caprice/python/bin/python3'\\''",
+  );
 });

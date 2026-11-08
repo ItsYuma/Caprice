@@ -1,6 +1,7 @@
 import {
   capriceDataDir,
   configPath,
+  containerCommand,
   launchEnv,
   platformOf,
   readConfig,
@@ -47,6 +48,22 @@ async function launch(): Promise<number> {
     );
   }
 
+  const container = saved?.container ?? "";
+
+  if (container.length > 0 && !insideFedora()) {
+    const child = Bun.spawn(
+      ["bash", "-lc", containerCommand(process.cwd(), container, merged)],
+      {
+        cwd: process.cwd(),
+        stdin: "inherit",
+        stdout: "inherit",
+        stderr: "inherit",
+      },
+    );
+
+    return child.exited;
+  }
+
   apply(merged);
 
   const child = Bun.spawn(
@@ -60,6 +77,14 @@ async function launch(): Promise<number> {
   );
 
   return child.exited;
+}
+
+function insideFedora(): boolean {
+  if ((process.env.CAPRICE_CONTAINER ?? "").length > 0) {
+    return true;
+  }
+
+  return (process.env.DISTROBOX_ENTER_PATH ?? "").length > 0;
 }
 
 function currentEnv(): LaunchEnv {

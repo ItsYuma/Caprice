@@ -87,7 +87,7 @@ async function installMain(): Promise<void> {
   await run(process.execPath, ["install"], repo);
   await Bun.write(configPath(platform, data), configText(config));
   const launcher = launcherPath(platform, data);
-  await Bun.write(launcher, launcherText(platform, repo));
+  await Bun.write(launcher, launcherText(platform, repo, config.container));
 
   if (platform !== "windows") {
     await chmod(launcher, 0o755);
@@ -158,6 +158,7 @@ async function choices(
     ttsVoice: chosenVoice,
     python: "",
     repo,
+    container: args.container.length > 0 ? args.container : saved.container,
   };
 }
 
@@ -358,5 +359,6 @@ function emptyConfig(): CapriceConfig {
     ttsVoice: "",
     python: "",
     repo: "",
+    container: "",
   };
 }
