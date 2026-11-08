@@ -12,6 +12,8 @@ export type Frame = {
 const hearers = new Set<(frame: Frame) => void>();
 
 let latest = restFrame();
+let generation = 0;
+let activeStop: (() => void) | undefined;
 
 export function heardAt(
   startedAt: number,
@@ -117,15 +119,33 @@ export async function playSpeech(bytes: Uint8Array): Promise<void> {
     return;
   }
 
+  const mine = generation + 1;
+  generation = mine;
+  const previous = activeStop;
+  activeStop = undefined;
+  previous?.();
+
   let context: AudioContext | undefined;
 
   try {
     context = new AudioContext();
     await resumeContext(context);
+
+    if (mine !== generation) {
+      return;
+    }
+
     const audio = await context.decodeAudioData(copiedBytes(bytes));
-    await playBuffer(context, audio);
+
+    if (mine !== generation) {
+      return;
+    }
+
+    await playBuffer(context, audio, mine);
   } catch (error) {
-    publish(restFrame());
+    if (mine === generation) {
+      publish(restFrame());
+    }
 
     if (isPlaybackFailure(error)) {
       throw error;
@@ -163,7 +183,11 @@ function copiedBytes(bytes: Uint8Array): ArrayBuffer {
   return copy;
 }
 
-function playBuffer(context: AudioContext, audio: AudioBuffer): Promise<void> {
+function playBuffer(
+  context: AudioContext,
+  audio: AudioBuffer,
+  mine: number,
+): Promise<void> {
   return new Promise((resolve, reject) => {
     const source = context.createBufferSource();
     let frameId: number | undefined;
@@ -187,7 +211,11 @@ function playBuffer(context: AudioContext, audio: AudioBuffer): Promise<void> {
       stopClock();
       source.onended = null;
       source.disconnect();
-      publish(restFrame());
+
+      if (mine === generation) {
+        activeStop = undefined;
+        publish(restFrame());
+      }
 
       if (failed) {
         reject(new Error(playbackFailed));
@@ -197,6 +225,16 @@ function playBuffer(context: AudioContext, audio: AudioBuffer): Promise<void> {
 
       resolve();
     };
+
+    const stop = () => {
+      try {
+        source.stop();
+      } catch {
+        finish(false);
+      }
+    };
+
+    activeStop = stop;
 
     source.onended = () => {
       finish(false);
@@ -212,7 +250,7 @@ function playBuffer(context: AudioContext, audio: AudioBuffer): Promise<void> {
       source.start();
 
       const tick = () => {
-        if (settled) {
+        if (settled || mine !== generation) {
           return;
         }
 

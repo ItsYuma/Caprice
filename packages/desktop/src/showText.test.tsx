@@ -30,6 +30,7 @@ test("a closed control renders no lines and the problem stays outside", () => {
       talkPhase="idle"
       talkHint=""
       talkStatus=""
+      credit=""
       onSubmit={() => false}
     />,
   );
@@ -45,6 +46,25 @@ test("a closed control renders no lines and the problem stays outside", () => {
   expect(showAt).toBeGreaterThan(-1);
   expect(problemAt).toBeGreaterThan(showAt);
   expect(html.indexOf("</div>", showAt)).toBeLessThan(problemAt);
+});
+
+test("the woof credit stays outside the transcript", () => {
+  const html = renderToStaticMarkup(
+    <CapricePage
+      lines={lines}
+      problem=""
+      hold={undefined}
+      talkPhase="idle"
+      talkHint=""
+      talkStatus=""
+      credit="Voice by Underdog Woof"
+      onSubmit={() => false}
+    />,
+  );
+
+  expect(html).toContain('id="voice-credit"');
+  expect(html).toContain("Voice by Underdog Woof");
+  expect(html).not.toContain("data-who");
 });
 
 test("the wave is one line until speech, then the heard prefix is brighter", () => {

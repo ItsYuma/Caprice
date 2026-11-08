@@ -135,6 +135,12 @@ h1 {
   background: #f2a2c8;
 }
 
+#voice-credit {
+  margin: 0;
+  color: #a88898;
+  font-size: 0.8rem;
+}
+
 #problem {
   margin: 0;
   color: #ffd0e4;

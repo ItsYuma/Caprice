@@ -4,6 +4,7 @@ import {
   bytesFromBase64,
   pageCanSpeak,
   pageListener,
+  readSpeechCredit,
   pageSpeaker,
   postSpeech,
   shellSpeaker,
@@ -243,6 +244,28 @@ test("the page speaks over http and refuses a shell engine", async () => {
 
   await http.speak("hey");
   expect(posts).toBe(1);
+});
+
+test("speech credit is empty outside the shell and kept from the command", async () => {
+  let reads = 0;
+
+  expect(
+    await readSpeechCredit(false, async () => {
+      reads += 1;
+
+      return "Voice by Underdog Woof";
+    }),
+  ).toBe("");
+  expect(reads).toBe(0);
+  expect(
+    await readSpeechCredit(true, async () => "Voice by Underdog Woof"),
+  ).toBe("Voice by Underdog Woof");
+  expect(await readSpeechCredit(true, async () => "")).toBe("");
+  await expect(
+    readSpeechCredit(true, async () => {
+      throw new Error("unknown reply engine: bark");
+    }),
+  ).resolves.toBe("");
 });
 
 const missingModel: TtsEnv = {

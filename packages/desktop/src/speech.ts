@@ -48,6 +48,20 @@ export function pageCanSpeak(engine: string): boolean {
   return name.length === 0 || name === "http";
 }
 
+export function readSpeechCredit(
+  inShell: boolean,
+  read: () => Promise<string>,
+): Promise<string> {
+  if (!inShell) {
+    return Promise.resolve("");
+  }
+
+  return read().then(
+    (text) => text,
+    () => "",
+  );
+}
+
 export function speechHint(inShell: boolean): string {
   if (inShell) {
     return `Hold ${talkChordLabel()}. Release to send.`;

@@ -13,6 +13,7 @@ export type CapricePageProps = {
   talkPhase: TalkPhase;
   talkHint: string;
   talkStatus: string;
+  credit: string;
   onSubmit: (text: string) => boolean;
 };
 
@@ -22,6 +23,7 @@ export function CapricePage(props: CapricePageProps) {
       <h1>Caprice</h1>
       <p className="lede">Hey. Your computer has a girl in it now.</p>
       <Presence />
+      {props.credit.length > 0 ? <p id="voice-credit">{props.credit}</p> : null}
       <ShowText lines={props.lines} />
       {props.problem.length > 0 ? <p id="problem">{props.problem}</p> : null}
       {props.hold === undefined ? null : (
