@@ -24,16 +24,16 @@ Stable Bun 1.4.4 has `bun test`, `bun fmt`, and `bun check`. `bun lint` in that 
 
 ## Layout
 
-| Path                     | Owns                                        |
-| ------------------------ | ------------------------------------------- |
-| `packages/core`          | `Session`, `Model`, `Tool`, persona slicing |
-| `packages/voice`         | `Listener` and `Speaker`                    |
-| `packages/desktop`       | Tauri window and `sayAndSpeak`              |
-| `skills/`                | Text the local model reads                  |
-| `docs/architecture.md`   | The diagram and the dependency rule         |
-| `CAPRI.md`               | Character facts the product may use         |
-| `MILESTONES.md`          | What is next                                |
-| `tools/oxlint/anti-slop` | Vendored upstream. Do not restyle it        |
+| Path                     | Owns                                                  |
+| ------------------------ | ----------------------------------------------------- |
+| `packages/core`          | `Session`, `Model`, `Tool`, `Result`, persona slicing |
+| `packages/voice`         | `Listener` and `Speaker`                              |
+| `packages/desktop`       | Tauri window and `sayAndSpeak`                        |
+| `skills/`                | Text the local model reads                            |
+| `docs/architecture.md`   | The diagram and the dependency rule                   |
+| `CAPRI.md`               | Character facts the product may use                   |
+| `MILESTONES.md`          | What is next                                          |
+| `tools/oxlint/anti-slop` | Vendored upstream. Do not restyle it                  |
 
 `packages/core` does not import `packages/voice` or `packages/desktop`. `packages/voice` does not import the other packages. The shell is the only composer. Rust opens the window. It does not own the session.
 
@@ -82,4 +82,6 @@ The window talks to whatever chat endpoint the environment names. Set both of th
 | `CAPRICE_MODEL`         | Model name sent in that body                                       |
 | `CAPRICE_MODEL_API_KEY` | Optional bearer token. Omit it when the endpoint does not need one |
 
-Inside the Tauri window, Rust reads those variables when the page asks and posts the chat body. A page opened outside Tauri gets the same names through Vite and posts itself, so that endpoint must allow the page origin. `packages/core` does not read the environment and does not open files.
+Inside the Tauri window, Rust reads those variables when the page asks and posts the chat body. A page opened outside Tauri gets the same names through Vite and posts with `postJson`, so that endpoint must allow the page origin. `postJson` is the only browser fetch. It sets `content-type: application/json`, and `Authorization: Bearer` when the key is non-empty. `packages/core` does not read the environment and does not open files.
+
+`tryCatch` turns a rejected promise into a `Result<T>`. Success is `{ ok: true, value }`. Failure is `{ ok: false, error }`. `value` is typed only on the success branch. Check `ok` before reading it. `say`, `sayAndSpeak`, and the page do that check and pass a failure upward. The page paints the host line `say` already stored, then shows `error.message`. An `Error` rejection is kept. A string rejection becomes an `Error` with that string. Anything else becomes an `Error` whose message is the fallback passed to `tryCatch`.
