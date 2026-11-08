@@ -12,9 +12,22 @@
   "app": {
     "windows": [
       {
+        "label": "main",
         "title": "Caprice",
-        "width": 420,
-        "height": 680
+        "width": 240,
+        "height": 320,
+        "minWidth": 200,
+        "minHeight": 260,
+        "resizable": true,
+        "decorations": false,
+        "transparent": true,
+        "alwaysOnTop": true,
+        "visibleOnAllWorkspaces": true,
+        "noRedirectionBitmap": true,
+        "shadow": false,
+        "skipTaskbar": false,
+        "center": false,
+        "backgroundColor": "#00000000"
       }
     ],
     "security": {

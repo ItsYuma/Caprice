@@ -1,7 +1,14 @@
 import { expect, test } from "bun:test";
 
 import { ok } from "./result.ts";
-import { openSession, stubModel, type Model, type Tool } from "./session.ts";
+import {
+  openSession,
+  stubModel,
+  threadLimit,
+  type Line,
+  type Model,
+  type Tool,
+} from "./session.ts";
 
 test("say records the host line and the capri line", async () => {
   let persona = "";
@@ -44,6 +51,34 @@ test("lines and tools are copies", async () => {
   expect(lines).toEqual(session.lines());
   expect(tools).not.toBe(session.tools());
   expect(tools.map((item) => item.name)).toEqual(["note"]);
+});
+
+test("a saved thread comes back and stays within the limit", async () => {
+  const seen: Line[][] = [];
+
+  const model: Model = {
+    async reply(turn) {
+      seen.push(turn.lines.slice());
+
+      return ok({ text: "n" });
+    },
+  };
+
+  const prior: Line[] = [];
+
+  for (let index = 0; index < 12; index += 1) {
+    prior.push({ who: "host", text: `h${index}` });
+    prior.push({ who: "capri", text: `c${index}` });
+  }
+
+  const session = openSession("p", model, [], prior);
+
+  expect(session.lines()).toHaveLength(threadLimit);
+  expect(session.lines()[0]).toEqual({ who: "host", text: "h2" });
+  await session.say("next");
+  expect(seen[0]?.at(-1)).toEqual({ who: "host", text: "next" });
+  expect(session.lines()).toHaveLength(threadLimit);
+  expect(prior).toHaveLength(24);
 });
 
 test("stub model quotes the host", async () => {

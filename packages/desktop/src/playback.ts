@@ -70,41 +70,6 @@ export function amplitudeAt(
   return peak;
 }
 
-export function waveColumns(
-  samples: Float32Array,
-  columns: number,
-): Float32Array {
-  const count = columns > 0 ? Math.floor(columns) : 0;
-  const peaks = new Float32Array(count);
-
-  if (samples.length === 0 || count === 0) {
-    return peaks;
-  }
-
-  for (let column = 0; column < count; column += 1) {
-    const start = Math.floor((column * samples.length) / count);
-    let end = Math.floor(((column + 1) * samples.length) / count);
-
-    if (end <= start) {
-      end = start + 1;
-    }
-
-    let peak = 0;
-
-    for (let index = start; index < end && index < samples.length; index += 1) {
-      const absolute = Math.abs(samples[index] ?? 0);
-
-      if (absolute > peak) {
-        peak = absolute;
-      }
-    }
-
-    peaks[column] = peak > 1 ? 1 : peak;
-  }
-
-  return peaks;
-}
-
 export function subscribePlayback(hear: (frame: Frame) => void): () => void {
   hearers.add(hear);
   hear(latest);

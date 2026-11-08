@@ -1,77 +1,251 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 
+import { amplitudeAt, subscribePlayback, type Frame } from "./playback.ts";
 import {
-  amplitudeAt,
-  subscribePlayback,
-  waveColumns,
-  type Frame,
-} from "./playback.ts";
+  bindTalkButton,
+  talkChordLabel,
+  type TalkHold,
+  type TalkPhase,
+} from "./talk.ts";
 
-export function Presence() {
+export type PresenceMode = "idle" | "listening" | "thinking" | "speaking";
+
+export type PresenceProps = {
+  phase: TalkPhase;
+  hold: TalkHold | undefined;
+  hint: string;
+};
+
+export function Presence(props: PresenceProps) {
   const figure = useRef<HTMLDivElement>(null);
   const canvas = useRef<HTMLCanvasElement>(null);
+  const button = useRef<HTMLButtonElement>(null);
   const frame = useRef<Frame>(resting());
-
-  useEffect(() => {
-    paintPresence(figure.current, canvas.current, frame.current);
-  });
+  const [speaking, setSpeaking] = useState(false);
+  const mode = presenceMode(props.phase, speaking);
 
   useEffect(() => {
     return subscribePlayback((next) => {
       frame.current = next;
-      paintPresence(figure.current, canvas.current, next);
+      setSpeaking((current) => (current === next.live ? current : next.live));
     });
   }, []);
 
+  useEffect(() => {
+    const node = button.current;
+
+    if (node === null || props.hold === undefined) {
+      return;
+    }
+
+    return bindTalkButton(node, props.hold);
+  }, [props.hold]);
+
+  useEffect(() => {
+    let frameId = 0;
+
+    const tick = (now: number) => {
+      paintPresence(figure.current, canvas.current, frame.current, mode, now);
+      frameId = requestAnimationFrame(tick);
+    };
+
+    frameId = requestAnimationFrame(tick);
+
+    return () => {
+      cancelAnimationFrame(frameId);
+    };
+  }, [mode]);
+
   return (
-    <div className="presence">
-      <div ref={figure} className="figure">
-        <svg
-          viewBox="0 0 200 236"
-          width="200"
-          height="236"
-          role="img"
-          aria-label="Caprice"
-        >
-          <defs>
-            <mask
-              id="presence-housing"
-              maskUnits="userSpaceOnUse"
-              x="0"
-              y="0"
-              width="200"
-              height="236"
-            >
-              <rect width="200" height="236" fill="black" />
+    <div className="presence" data-mode={mode}>
+      <button
+        ref={button}
+        id="talk"
+        type="button"
+        data-phase={props.phase}
+        aria-label="Hold to talk"
+        aria-keyshortcuts={talkChordLabel()}
+        title={props.hint}
+      >
+        <div ref={figure} className="figure">
+          <svg
+            viewBox="0 0 200 236"
+            width="200"
+            height="236"
+            aria-hidden="true"
+          >
+            <defs>
+              <mask
+                id="presence-housing"
+                maskUnits="userSpaceOnUse"
+                x="0"
+                y="0"
+                width="200"
+                height="236"
+              >
+                <rect width="200" height="236" fill="black" />
+                <rect
+                  x="34"
+                  y="20"
+                  width="132"
+                  height="196"
+                  rx="46"
+                  fill="white"
+                />
+              </mask>
+            </defs>
+            <g mask="url(#presence-housing)">
               <rect
+                className="housing"
                 x="34"
                 y="20"
                 width="132"
                 height="196"
                 rx="46"
-                fill="white"
               />
-            </mask>
-          </defs>
-          <g mask="url(#presence-housing)">
-            <rect
-              className="housing"
-              x="34"
-              y="20"
-              width="132"
-              height="196"
-              rx="46"
-            />
-            <g className="slit">
-              <rect x="58" y="92" width="84" height="10" rx="5" />
+              <g className="slit">
+                <rect x="58" y="92" width="84" height="10" rx="5" />
+              </g>
             </g>
-          </g>
-          <circle className="pip" cx="130" cy="174" r="7" />
-        </svg>
-      </div>
+            <circle className="pip" cx="130" cy="174" r="7" />
+          </svg>
+        </div>
+      </button>
+      <p id="thinking" data-on={mode === "thinking" ? "true" : "false"}>
+        {mode === "thinking" ? "thinking" : ""}
+      </p>
       <canvas ref={canvas} className="wave" aria-hidden="true" />
     </div>
   );
+}
+
+export function presenceMode(
+  phase: TalkPhase,
+  speaking: boolean,
+): PresenceMode {
+  if (speaking) {
+    return "speaking";
+  }
+
+  if (phase === "listening") {
+    return "listening";
+  }
+
+  if (phase === "busy") {
+    return "thinking";
+  }
+
+  return "idle";
+}
+
+export function wavePhase(mode: PresenceMode, now: number): number {
+  if (prefersStill()) {
+    return 0;
+  }
+
+  const pace =
+    mode === "speaking"
+      ? 140
+      : mode === "listening"
+        ? 220
+        : mode === "thinking"
+          ? 640
+          : 1100;
+
+  return now / pace;
+}
+
+export function sineAmplitude(mode: PresenceMode, frame: Frame): number {
+  if (mode === "speaking") {
+    return amplitudeAt(frame.samples, frame.rate, frame.heard);
+  }
+
+  if (mode === "listening") {
+    return 0.42;
+  }
+
+  if (mode === "thinking") {
+    return 0.18;
+  }
+
+  return 0.07;
+}
+
+export function sineOffset(
+  width: number,
+  x: number,
+  phase: number,
+  reach: number,
+): number {
+  if (!(width > 0)) {
+    return 0;
+  }
+
+  return Math.sin((x / width) * Math.PI * 2 * 2.5 + phase) * reach;
+}
+
+export type WavePen = {
+  clearRect: (x: number, y: number, width: number, height: number) => void;
+  beginPath: () => void;
+  moveTo: (x: number, y: number) => void;
+  lineTo: (x: number, y: number) => void;
+  stroke: () => void;
+  strokeStyle: string | CanvasGradient | CanvasPattern;
+  lineWidth: number;
+  lineCap: CanvasLineCap;
+};
+
+export function drawWave(
+  context: WavePen,
+  width: number,
+  height: number,
+  mode: PresenceMode,
+  amplitude: number,
+  phase: number,
+): void {
+  if (width < 2 || height < 2) {
+    return;
+  }
+
+  context.clearRect(0, 0, width, height);
+  const mid = height / 2;
+  const level = amplitude > 1 ? 1 : amplitude < 0 ? 0 : amplitude;
+  const reach = mid * 0.82 * level;
+  const steps = width > 240 ? 240 : Math.floor(width);
+
+  context.lineWidth = Math.max(2, Math.round(height / 28));
+  context.lineCap = "round";
+  context.strokeStyle = waveColor(mode);
+  context.beginPath();
+
+  for (let step = 0; step <= steps; step += 1) {
+    const x = (step * (width - 1)) / steps;
+    const y = mid + sineOffset(width, x, phase, reach);
+
+    if (step === 0) {
+      context.moveTo(x, y);
+    } else {
+      context.lineTo(x, y);
+    }
+  }
+
+  context.stroke();
+}
+
+function waveColor(mode: PresenceMode): string {
+  if (mode === "speaking") {
+    return "#f2a2c8";
+  }
+
+  if (mode === "thinking") {
+    return "#e38bb8";
+  }
+
+  if (mode === "listening") {
+    return "#ffd0e4";
+  }
+
+  return "#a88898";
 }
 
 function resting(): Frame {
@@ -87,11 +261,15 @@ function paintPresence(
   figure: HTMLDivElement | null,
   canvas: HTMLCanvasElement | null,
   frame: Frame,
+  mode: PresenceMode,
+  now: number,
 ): void {
+  const amplitude = sineAmplitude(mode, frame);
+
   if (figure !== null) {
-    const amp = amplitudeAt(frame.samples, frame.rate, frame.heard);
-    figure.style.setProperty("--amp", amp.toFixed(4));
-    figure.dataset.live = frame.live ? "true" : "false";
+    figure.style.setProperty("--amp", amplitude.toFixed(4));
+    figure.dataset.live = mode === "speaking" ? "true" : "false";
+    figure.dataset.mode = mode;
   }
 
   if (canvas === null) {
@@ -105,7 +283,14 @@ function paintPresence(
   }
 
   const size = bitmapSize(canvas);
-  drawWave(context, size.width, size.height, frame);
+  drawWave(
+    context,
+    size.width,
+    size.height,
+    mode,
+    amplitude,
+    wavePhase(mode, now),
+  );
 }
 
 function bitmapSize(canvas: HTMLCanvasElement) {
@@ -124,97 +309,8 @@ function bitmapSize(canvas: HTMLCanvasElement) {
   return { width, height };
 }
 
-export type WavePen = {
-  clearRect: (x: number, y: number, width: number, height: number) => void;
-  beginPath: () => void;
-  moveTo: (x: number, y: number) => void;
-  lineTo: (x: number, y: number) => void;
-  closePath: () => void;
-  fill: () => void;
-  stroke: () => void;
-  fillStyle: string | CanvasGradient | CanvasPattern;
-  strokeStyle: string | CanvasGradient | CanvasPattern;
-  lineWidth: number;
-  lineCap: CanvasLineCap;
-};
+function prefersStill(): boolean {
+  const media = window.matchMedia?.("(prefers-reduced-motion: reduce)");
 
-export function drawWave(
-  context: WavePen,
-  width: number,
-  height: number,
-  frame: Frame,
-): void {
-  if (width < 2 || height < 2) {
-    return;
-  }
-
-  context.clearRect(0, 0, width, height);
-  const mid = height / 2;
-  context.lineWidth = Math.max(2, Math.round(height / 56));
-  context.lineCap = "butt";
-
-  if (!frame.live || frame.samples.length === 0) {
-    strokeSpan(context, 0, width, "#a88898", mid);
-
-    return;
-  }
-
-  const columns = waveColumns(frame.samples, width);
-  const heard = Math.min(width, Math.max(0, Math.round(frame.heard * width)));
-  const reach = mid * 0.86;
-  fillSpan(context, columns, 0, heard, "#f2a2c8", mid, reach);
-  fillSpan(context, columns, heard, width, "#4a3340", mid, reach);
-  strokeSpan(context, 0, heard, "#f2a2c8", mid);
-  strokeSpan(context, heard, width, "#6d4d5c", mid);
-}
-
-function fillSpan(
-  context: WavePen,
-  columns: Float32Array,
-  from: number,
-  to: number,
-  color: string,
-  mid: number,
-  reach: number,
-): void {
-  if (to <= from) {
-    return;
-  }
-
-  const last = to - 1;
-
-  context.fillStyle = color;
-  context.beginPath();
-  context.moveTo(from, mid - (columns[from] ?? 0) * reach);
-
-  for (let x = from + 1; x <= last; x += 1) {
-    context.lineTo(x, mid - (columns[x] ?? 0) * reach);
-  }
-
-  context.lineTo(last, mid + (columns[last] ?? 0) * reach);
-
-  for (let x = last - 1; x >= from; x -= 1) {
-    context.lineTo(x, mid + (columns[x] ?? 0) * reach);
-  }
-
-  context.closePath();
-  context.fill();
-}
-
-function strokeSpan(
-  context: WavePen,
-  from: number,
-  to: number,
-  color: string,
-  mid: number,
-): void {
-  if (to <= from) {
-    return;
-  }
-
-  context.strokeStyle = color;
-  context.beginPath();
-  context.moveTo(from, mid);
-  context.lineTo(to, mid);
-  context.stroke();
+  return media !== undefined && media.matches;
 }

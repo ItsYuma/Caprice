@@ -19,14 +19,11 @@ export function App() {
 
   return (
     <CapricePage
-      lines={caprice.lines}
       problem={caprice.problem}
       hold={caprice.hold}
       talkPhase={caprice.talkPhase}
-      talkHint={caprice.talkHint}
-      talkStatus={caprice.talkStatus}
+      hint={caprice.hint}
       credit={credit}
-      onSubmit={caprice.submit}
     />
   );
 }

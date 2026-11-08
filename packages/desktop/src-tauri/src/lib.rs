@@ -7,6 +7,7 @@ pub fn speech_worker() -> i32 {
 }
 
 use serde::Serialize;
+use tauri::Manager;
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -127,6 +128,10 @@ pub fn run() {
     tauri::Builder::default()
         .manage(speech::SpeechState::new())
         .manage(speech::ReplyState::new())
+        .setup(|app| {
+            place_companion(app.handle());
+            Ok(())
+        })
         .invoke_handler(tauri::generate_handler![
             model_endpoint,
             model_complete,
@@ -138,4 +143,21 @@ pub fn run() {
         ])
         .run(tauri::generate_context!())
         .expect("error while running caprice");
+}
+
+fn place_companion(app: &tauri::AppHandle) {
+    let Some(window) = app.get_webview_window("main") else {
+        return;
+    };
+    let Ok(Some(monitor)) = window.current_monitor() else {
+        return;
+    };
+    let Ok(size) = window.outer_size() else {
+        return;
+    };
+    let area = monitor.work_area();
+    let margin = 24;
+    let x = area.position.x + area.size.width as i32 - size.width as i32 - margin;
+    let y = area.position.y + area.size.height as i32 - size.height as i32 - margin;
+    let _ = window.set_position(tauri::PhysicalPosition::new(x, y));
 }

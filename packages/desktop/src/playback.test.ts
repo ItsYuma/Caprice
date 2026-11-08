@@ -5,7 +5,6 @@ import {
   heardAt,
   playSpeech,
   subscribePlayback,
-  waveColumns,
   type Frame,
 } from "./playback.ts";
 
@@ -41,19 +40,6 @@ test("amplitudeAt is the peak in the 32 ms window at the playhead", () => {
 
   samples[30] = -2;
   expect(amplitudeAt(samples, rate, 0.5)).toBe(1);
-});
-
-test("waveColumns is one peak per column across the buffer", () => {
-  const samples = new Float32Array([0.25, -0.5, 1, 0.125]);
-
-  expect(Array.from(waveColumns(samples, 2))).toEqual([0.5, 1]);
-  expect(Array.from(waveColumns(samples, 1))).toEqual([1]);
-  expect(waveColumns(samples, 0).length).toBe(0);
-  expect(Array.from(waveColumns(new Float32Array(), 3))).toEqual([0, 0, 0]);
-  expect(Array.from(waveColumns(new Float32Array([2, -3]), 2))).toEqual([1, 1]);
-  expect(Array.from(waveColumns(new Float32Array([0.5]), 3))).toEqual([
-    0.5, 0.5, 0.5,
-  ]);
 });
 
 test("empty speech resolves without drawing", async () => {
