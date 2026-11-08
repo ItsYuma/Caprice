@@ -108,6 +108,52 @@ function Install-CapricePython {
   Write-Error "Python installed but python.exe was not found."
 }
 
+function Test-CapriceLinker {
+  $vswhere = Join-Path ${env:ProgramFiles(x86)} "Microsoft Visual Studio\Installer\vswhere.exe"
+  if (-not (Test-Path -LiteralPath $vswhere)) {
+    return $false
+  }
+  $install = & $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
+  if ($LASTEXITCODE -ne 0) {
+    return $false
+  }
+  return -not [string]::IsNullOrWhiteSpace("$install")
+}
+
+function Install-CapriceLinker {
+  if (Test-CapriceLinker) {
+    return
+  }
+  $setup = Join-Path ${env:ProgramFiles(x86)} "Microsoft Visual Studio\Installer\setup.exe"
+  $vswhere = Join-Path ${env:ProgramFiles(x86)} "Microsoft Visual Studio\Installer\vswhere.exe"
+  if ((Test-Path -LiteralPath $setup) -and (Test-Path -LiteralPath $vswhere)) {
+    $existing = & $vswhere -latest -products * -property installationPath
+    if ($LASTEXITCODE -eq 0 -and -not [string]::IsNullOrWhiteSpace("$existing")) {
+      Write-Host "Adding the Visual C++ workload to the existing Visual Studio install."
+      $proc = Start-Process -FilePath $setup -ArgumentList @(
+        "modify",
+        "--installPath", "$existing".Trim(),
+        "--add", "Microsoft.VisualStudio.Workload.VCTools",
+        "--includeRecommended",
+        "--passive",
+        "--wait",
+        "--norestart"
+      ) -Wait -PassThru
+      if ($proc.ExitCode -ne 0 -and $proc.ExitCode -ne 3010) {
+        Write-Error "Visual Studio installer exited with $($proc.ExitCode)"
+      }
+      if (Test-CapriceLinker) {
+        return
+      }
+    }
+  }
+  Write-Host "Installing the Visual C++ build tools. Rust's Windows linker comes from that package."
+  & winget install --id Microsoft.VisualStudio.2022.BuildTools -e --accept-package-agreements --accept-source-agreements --disable-interactivity --override "--wait --passive --norestart --add Microsoft.VisualStudio.Workload.VCTools --includeRecommended"
+  if ($LASTEXITCODE -ne 0 -and $LASTEXITCODE -ne 3010) {
+    Write-Error "winget could not install the Visual C++ build tools"
+  }
+}
+
 function Install-CapriceRust {
   $cargoBin = Join-Path $env:USERPROFILE ".cargo\bin"
   $rustup = Join-Path $cargoBin "rustup.exe"
@@ -141,6 +187,7 @@ if (-not $SkipSystem) {
   if (-not $webview) {
     Install-CapriceTool "Microsoft.EdgeWebView2Runtime"
   }
+  Install-CapriceLinker
   Install-CapriceRust
 }
 

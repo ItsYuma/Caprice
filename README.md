@@ -9,7 +9,7 @@ scripts/install.sh --model-url http://your-brain/v1/chat/completions --model you
 bun run dev
 ```
 
-On Windows, run `powershell -ExecutionPolicy Bypass -File scripts\install.ps1` with the same two flags. The Store `python.exe` alias is ignored. The script installs Python 3.12 for the current user, and `bun run dev` puts `%USERPROFILE%\.cargo\bin` on `PATH`. The installer downloads Underdog Woof and Underdog Bark, creates a Python environment with numpy, and writes `config.json` under the user data directory (`~/.local/share/caprice` on Linux, `~/Library/Application Support/caprice` on macOS, `%LOCALAPPDATA%\caprice` on Windows). `bun run dev` reads that file when the variables are unset. The first launch compiles the window. `--voice mira` selects Mira. Empty or `juno` is Juno.
+On Windows, run `powershell -ExecutionPolicy Bypass -File scripts\install.ps1` with the same two flags. The Store `python.exe` alias is ignored. The script installs Python 3.12 for the current user, the Visual C++ build tools, and `bun run dev` puts `%USERPROFILE%\.cargo\bin` on `PATH`. The installer downloads Underdog Woof and Underdog Bark, creates a Python environment with numpy, and writes `config.json` under the user data directory (`~/.local/share/caprice` on Linux, `~/Library/Application Support/caprice` on macOS, `%LOCALAPPDATA%\caprice` on Windows). `bun run dev` reads that file when the variables are unset. The first launch compiles the window. `--voice mira` selects Mira. Empty or `juno` is Juno.
 
 Rocky Linux 9, RHEL 9, and AlmaLinux 9 ship WebKitGTK 4.0. The installer creates a Fedora container named `caprice` and the window runs there. `bun run dev` enters that container.
 
