@@ -25,7 +25,7 @@ Done.
 
 Done.
 
-- Hold Alt+Space or Ctrl+Space while the window is focused, or hold the button. Release sends the transcript
+- Hold Alt+Space or Ctrl+Space while the window is focused, or hold the box. A tap does not send. Release sends the transcript
 - `listenAndSay` passes that text to `say`, then the page plays the capri line
 - The listener is `captureListener`. Inside the Tauri window, Rust records the default microphone and a speech worker transcribes it. The worker loads the selected engine once and stays until the window exits
 - `CAPRICE_STT_ENGINE=bark` loads Underdog Bark 3.0 Pro from `CAPRICE_STT_MODEL` (`config.json`, `tokenizer.json`, `model.safetensors`). Empty or `onnx` loads the int8 ONNX directory. No model path is hardcoded

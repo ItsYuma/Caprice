@@ -105,7 +105,7 @@ Inside the Tauri window, Rust reads those variables when the page asks and posts
 
 ## Voice
 
-Hold Alt+Space or Ctrl+Space while the Caprice window is focused, or hold the button. Release to send. The chords are `talkChords` in `packages/desktop/src/talk.ts`. They are window shortcuts, so they do not register a global hotkey. A window manager that already owns Alt+Space can swallow that chord before the page sees it. Ctrl+Space still works. The button still works. WebKitGTK does not matter for speech.
+Hold Alt+Space or Ctrl+Space while the Caprice window is focused, or hold the box. Release to send. A tap does not send. Listening starts after `talkHoldDelay` in `packages/desktop/src/talk.ts`, so a click that only focuses the window does not run a turn. The chords are `talkChords` in that file. They are window shortcuts, so they do not register a global hotkey. A window manager that already owns Alt+Space can swallow that chord before the page sees it. Ctrl+Space still works. The box still works. WebKitGTK does not matter for speech.
 
 `listenAndSay` waits for `listen`, then runs `say`, then the speaker. The listener is `captureListener`. Inside the Tauri window, Rust records the default microphone and sends the clip to a speech worker. The worker is this binary started with `--speech-worker`. It loads the model once and stays until the window exits. The page calls `speech_listen_start`, `speech_listen_stop`, and `speech_speak`. `scriptedListener` and `recordingSpeaker` stay for tests.
 

@@ -79,42 +79,71 @@ export function isTalkRelease(event: TalkRelease): boolean {
   );
 }
 
+export const talkHoldDelay = 200;
+
 export function holdToTalk(
   listener: PushListener,
   turn: () => Promise<void>,
   onPhase: (phase: TalkPhase) => void,
+  later: (run: () => void) => () => void = afterTalkHold,
 ): TalkHold {
   let phase: TalkPhase = "idle";
+  let armed = false;
+  let cancelArm = () => {};
 
   const setPhase = (next: TalkPhase) => {
     phase = next;
     onPhase(phase);
   };
 
+  const begin = () => {
+    armed = false;
+
+    if (phase !== "idle") {
+      return;
+    }
+
+    setPhase("listening");
+
+    let pending: Promise<void>;
+
+    try {
+      pending = turn();
+    } catch {
+      setPhase("idle");
+
+      return;
+    }
+
+    void pending.finally(() => {
+      setPhase("idle");
+    });
+  };
+
   return {
     phase: () => phase,
     press() {
-      if (phase !== "idle") {
+      if (phase !== "idle" || armed) {
         return;
       }
 
-      setPhase("listening");
+      armed = true;
 
-      let pending: Promise<void>;
+      const cancel = later(begin);
 
-      try {
-        pending = turn();
-      } catch {
-        setPhase("idle");
-
-        return;
+      if (armed) {
+        cancelArm = cancel;
       }
-
-      void pending.finally(() => {
-        setPhase("idle");
-      });
     },
     release() {
+      if (armed) {
+        armed = false;
+        cancelArm();
+        cancelArm = () => {};
+
+        return;
+      }
+
       if (phase !== "listening") {
         return;
       }
@@ -122,6 +151,14 @@ export function holdToTalk(
       setPhase("busy");
       listener.release();
     },
+  };
+}
+
+function afterTalkHold(run: () => void): () => void {
+  const timer = setTimeout(run, talkHoldDelay);
+
+  return () => {
+    clearTimeout(timer);
   };
 }
 

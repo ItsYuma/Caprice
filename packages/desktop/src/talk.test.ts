@@ -60,6 +60,7 @@ test("holding the chord sends the heard line through say and the speaker", async
     (phase) => {
       phases.push(phase);
     },
+    beginNow,
   );
 
   hold.press();
@@ -75,6 +76,54 @@ test("holding the chord sends the heard line through say and the speaker", async
   expect(recording.spoken()).toEqual(["No model yet. You said: yo"]);
   expect(phases).toEqual(["listening", "busy", "idle"]);
 });
+
+test("a tap does not send", () => {
+  const manual = heldCapture();
+  const listener = captureListener(manual.capture);
+  const phases: TalkPhase[] = [];
+  let turns = 0;
+  let start = () => {};
+
+  const hold = holdToTalk(
+    listener,
+    () => {
+      turns += 1;
+
+      return Promise.resolve();
+    },
+    (phase) => {
+      phases.push(phase);
+    },
+    (run) => {
+      start = run;
+
+      return () => {
+        start = () => {};
+      };
+    },
+  );
+
+  hold.press();
+  expect(hold.phase()).toBe("idle");
+  hold.release();
+  start();
+  expect(turns).toBe(0);
+  expect(phases).toEqual([]);
+
+  hold.press();
+  start();
+  expect(hold.phase()).toBe("listening");
+  expect(turns).toBe(1);
+  manual.say("yo");
+  hold.release();
+  expect(hold.phase()).toBe("busy");
+});
+
+function beginNow(run: () => void): () => void {
+  run();
+
+  return () => {};
+}
 
 function heldCapture() {
   let transcript = "";
