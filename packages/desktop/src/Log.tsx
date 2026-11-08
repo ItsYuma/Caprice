@@ -2,7 +2,6 @@ import type { Line } from "@caprice/core";
 
 export type LogProps = {
   lines: readonly Line[];
-  problem: string;
 };
 
 export function Log(props: LogProps) {
@@ -13,7 +12,6 @@ export function Log(props: LogProps) {
           {line.text}
         </p>
       ))}
-      {props.problem.length > 0 ? <p>{props.problem}</p> : null}
     </div>
   );
 }

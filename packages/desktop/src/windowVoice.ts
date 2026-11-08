@@ -1,10 +1,10 @@
 import type { PushListener, Speaker } from "@caprice/voice";
 import { invoke } from "@tauri-apps/api/core";
 
+import { playSpeech } from "./playback.ts";
 import {
   pageListener,
   pageSpeaker,
-  playSpeech,
   postSpeech,
   shellListener,
   shellSpeaker,
@@ -31,7 +31,12 @@ export function windowVoice(): WindowVoice {
     listener: commands === undefined ? pageListener() : shellListener(commands),
     speaker:
       commands === undefined
-        ? pageSpeaker(ttsEnv(), postSpeech, playSpeech)
+        ? pageSpeaker(
+            ttsEnv(),
+            import.meta.env.CAPRICE_TTS_ENGINE ?? "",
+            postSpeech,
+            playSpeech,
+          )
         : shellSpeaker(commands, playSpeech),
   };
 }

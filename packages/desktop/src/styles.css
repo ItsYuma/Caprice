@@ -10,11 +10,12 @@ body {
 
 main {
   box-sizing: border-box;
-  min-height: 100vh;
+  height: 100vh;
   display: flex;
   flex-direction: column;
   gap: 16px;
   padding: 24px;
+  overflow: hidden;
 }
 
 h1 {
@@ -28,11 +29,123 @@ h1 {
   color: #e38bb8;
 }
 
-.log {
+.presence {
   flex: 1;
+  min-height: 0;
+  width: 100%;
+  display: grid;
+  grid-template-rows: minmax(0, 1fr) 112px;
+  align-items: center;
+  justify-items: center;
+  gap: 28px;
+}
+
+.figure {
+  --amp: 0;
+  width: min(70%, 210px);
+  height: 100%;
+  min-height: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.figure svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+  max-height: 248px;
+  overflow: visible;
+}
+
+.housing {
+  fill: #f3eee6;
+  stroke: #e7d9cc;
+  stroke-width: 1.5;
+}
+
+.slit rect {
+  fill: #110c10;
+}
+
+.pip {
+  fill: #d23b73;
+}
+
+.slit,
+.pip {
+  transform-box: fill-box;
+  transform-origin: center;
+}
+
+.figure:not([data-live="true"]) .slit,
+.figure:not([data-live="true"]) .pip {
+  animation: presence-idle 3.4s ease-in-out infinite;
+}
+
+.figure[data-live="true"] .slit,
+.figure[data-live="true"] .pip {
+  animation: none;
+  transform: translateY(calc(var(--amp) * 18px));
+}
+
+@keyframes presence-idle {
+  0%,
+  100% {
+    transform: translateY(-4px);
+  }
+
+  50% {
+    transform: translateY(5px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .figure:not([data-live="true"]) .slit,
+  .figure:not([data-live="true"]) .pip {
+    animation: none;
+  }
+}
+
+.wave {
+  width: 100%;
+  height: 112px;
+  flex-shrink: 0;
+  display: block;
+}
+
+.show-text {
   display: flex;
   flex-direction: column;
   gap: 8px;
+}
+
+.show-text button {
+  align-self: flex-start;
+  border: 1px solid #5a3048;
+  padding: 6px 12px;
+  color: #b9a3ae;
+  background: transparent;
+  font-size: 12px;
+}
+
+.show-text button[aria-pressed="true"] {
+  border-color: transparent;
+  color: #1a1014;
+  background: #f2a2c8;
+}
+
+#problem {
+  margin: 0;
+  color: #ffd0e4;
+}
+
+.log {
+  max-height: 28vh;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  overflow: auto;
 }
 
 .log p {
