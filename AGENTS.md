@@ -17,6 +17,7 @@ From the repo root, with Bun 1.4.4:
 | `scripts/install.sh`          | Linux and macOS setup: tools, Woof, Bark, config       |
 | `scripts/install.ps1`         | Windows setup. Same flags as `scripts/install.sh`      |
 | `bun run dev`                 | Tauri window. Fills unset vars from the install config |
+| `bun run dev -- --release`    | Same window. The Rust shell uses the release profile   |
 | `cargo check`                 | Rust shell, from `packages/desktop/src-tauri`          |
 | `cargo test`                  | Rust shell tests, from `packages/desktop/src-tauri`    |
 | `cargo fmt`                   | Format the shell                                       |
