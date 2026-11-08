@@ -8,6 +8,6 @@ The child is this binary started with `--speech-worker`. It reads one JSON objec
 
 `Onnx` reads an int8 directory through `transcribe-rs` 0.3.12, so `ort` stays pinned to `2.0.0-rc.12`. `Bark` reads a `ParakeetForTDT` checkpoint (`config.json`, `tokenizer.json`, `model.safetensors`) through telmo and keeps the weights in bf16. Before each clip it prepends a quarter second of silence, which is what the publisher's runner does. The checkpoint we load is [Underdog Bark 3.0 Pro](https://huggingface.co/ConwayResearch/Underdog-Bark-3.0-Pro). The licence is CC BY-NC 4.0. Its Core ML and MLX packages are the same weights in other runtimes.
 
-Chat and spoken replies are HTTP. Those choices are `chat-over-http.md` and `tts-over-http.md`.
+Chat is HTTP. Spoken replies are a separate engine. Those choices are `chat-over-http.md` and `spoken-reply.md`.
 
 Set aside: a TypeScript or Python process that owns the weights, and Whisper. One language loads speech models. The page reloads, and another language would be a second runtime to keep alive.

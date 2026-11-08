@@ -6,4 +6,5 @@ commands.allow = [
   "speech_listen_start",
   "speech_listen_stop",
   "speech_speak",
+  "speech_credit",
 ]

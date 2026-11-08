@@ -126,6 +126,7 @@ async fn speech_listen_stop(
 pub fn run() {
     tauri::Builder::default()
         .manage(speech::SpeechState::new())
+        .manage(speech::ReplyState::new())
         .invoke_handler(tauri::generate_handler![
             model_endpoint,
             model_complete,
@@ -133,6 +134,7 @@ pub fn run() {
             speech_listen_start,
             speech_listen_stop,
             speech::speak::speech_speak,
+            speech::speak::speech_credit,
         ])
         .run(tauri::generate_context!())
         .expect("error while running caprice");
