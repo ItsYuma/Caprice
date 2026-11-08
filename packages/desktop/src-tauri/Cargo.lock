@@ -302,6 +302,7 @@ dependencies = [
  "serde_json",
  "tauri",
  "tauri-build",
+ "telmo",
  "transcribe-rs",
 ]
 
@@ -4115,6 +4116,12 @@ dependencies = [
  "embed-resource",
  "toml 1.1.8+spec-1.1.0",
 ]
+
+[[package]]
+name = "telmo"
+version = "0.3.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0bda12fcd5f187a83746336149f1eeac470da271119815711e8aa2a11b0527de"
 
 [[package]]
 name = "tempfile"

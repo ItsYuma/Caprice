@@ -1,3 +1,4 @@
+mod bark;
 mod capture;
 mod contract;
 mod engine;

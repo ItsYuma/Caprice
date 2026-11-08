@@ -102,15 +102,15 @@ Hold Alt+Space while the Caprice window is focused, or hold the button. Release 
 
 `listenAndSay` waits for `listen`, then runs `say`, then the speaker. The listener is `captureListener`. Inside the Tauri window, Rust records the default microphone and sends the clip to a speech worker. The worker is this binary started with `--speech-worker`. It loads the model once and stays until the window exits. The page calls `speech_listen_start`, `speech_listen_stop`, and `speech_speak`. `scriptedListener` and `recordingSpeaker` stay for tests.
 
-| Variable              | What it is                                                                                                             |
-| --------------------- | ---------------------------------------------------------------------------------------------------------------------- |
-| `CAPRICE_STT_ENGINE`  | Speech engine name. Empty or `onnx` loads the ONNX variant. Any other name is an error                                 |
-| `CAPRICE_STT_MODEL`   | Directory of weights for that engine. The ONNX variant needs the encoder, the decoder, `nemo128.onnx`, and `vocab.txt` |
-| `CAPRICE_TTS_URL`     | Full URL for a JSON body `{ model, input }`                                                                            |
-| `CAPRICE_TTS_MODEL`   | Model name sent in that body                                                                                           |
-| `CAPRICE_TTS_VOICE`   | Optional `voice` field. Omit the field when this is empty                                                              |
-| `CAPRICE_TTS_API_KEY` | Optional bearer token. Omit it when the endpoint does not need one                                                     |
+| Variable              | What it is                                                                                                                                                           |
+| --------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `CAPRICE_STT_ENGINE`  | Speech engine name. Empty or `onnx` loads the int8 ONNX directory. `bark` loads a Parakeet safetensors checkpoint. Any other name is an error                        |
+| `CAPRICE_STT_MODEL`   | Directory for that engine. ONNX needs the encoder, the decoder, `nemo128.onnx`, and `vocab.txt`. Bark needs `config.json`, `tokenizer.json`, and `model.safetensors` |
+| `CAPRICE_TTS_URL`     | Full URL for a JSON body `{ model, input }`                                                                                                                          |
+| `CAPRICE_TTS_MODEL`   | Model name sent in that body                                                                                                                                         |
+| `CAPRICE_TTS_VOICE`   | Optional `voice` field. Omit the field when this is empty                                                                                                            |
+| `CAPRICE_TTS_API_KEY` | Optional bearer token. Omit it when the endpoint does not need one                                                                                                   |
 
-The ONNX variant loads the int8 weights through `transcribe-rs`. Another speech model is a new engine variant in that worker, not a new language. Underdog Bark 3.0 Pro is the model we want, and its safetensors do not open in the ONNX variant. No microphone name, host, or model id is hardcoded. Caprice does not start Handy and does not use the Web Speech API.
+The ONNX variant loads the int8 weights through `transcribe-rs`. The Bark variant loads the safetensors checkpoint through telmo, in bf16, and prepends a quarter second of silence. Another speech model is a new engine variant in that worker, not a new language. No microphone name, host, or model id is hardcoded. Caprice does not start Handy and does not use the Web Speech API.
 
 Spoken replies need `CAPRICE_TTS_URL` and `CAPRICE_TTS_MODEL`. Rust posts inside the window. The page plays the bytes. There is no resident TTS model. Outside Tauri the page does not invoke. Listening fails because the speech model is unavailable. Speaking uses `postSpeech` only when both TTS variables are set, and otherwise rejects with `speech is not configured`.
