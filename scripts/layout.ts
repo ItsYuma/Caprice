@@ -131,6 +131,21 @@ export function venvDir(platform: Platform, data: string): string {
   return joinPath(platform, data, "python");
 }
 
+export function prependHomeBins(
+  platform: Platform,
+  home: string,
+  path: string,
+): string {
+  return prependMissing(
+    platform,
+    [
+      joinPath(platform, home, ".cargo", "bin"),
+      joinPath(platform, home, ".bun", "bin"),
+    ],
+    path,
+  );
+}
+
 export function venvPython(platform: Platform, data: string): string {
   if (platform === "windows") {
     return joinPath(platform, venvDir(platform, data), "Scripts", "python.exe");
@@ -339,7 +354,7 @@ ${containerCommand(repo, container, blankLaunch())}
 
   return `#!/bin/sh
 set -eu
-export PATH="$HOME/.bun/bin:$PATH"
+export PATH="$HOME/.cargo/bin:$HOME/.bun/bin:$PATH"
 cd ${shellQuote(repo)}
 exec bun run dev
 `;
@@ -347,7 +362,7 @@ exec bun run dev
 
 export function windowsLauncher(repo: string): string {
   return `$ErrorActionPreference = "Stop"
-$env:PATH = "$env:USERPROFILE\\.bun\\bin;" + $env:PATH
+$env:PATH = "$env:USERPROFILE\\.cargo\\bin;$env:USERPROFILE\\.bun\\bin;" + $env:PATH
 Set-Location -LiteralPath ${powershellQuote(repo)}
 bun run dev
 `;
@@ -519,6 +534,48 @@ function prefer(current: string, saved: string): string {
   }
 
   return saved.trim();
+}
+
+function prependMissing(
+  platform: Platform,
+  bins: readonly string[],
+  path: string,
+): string {
+  const separator = platform === "windows" ? ";" : ":";
+  const parts = path.length === 0 ? [] : path.split(separator);
+  const front: string[] = [];
+
+  for (const bin of bins) {
+    let found = false;
+
+    for (const part of parts) {
+      if (part === bin) {
+        found = true;
+      }
+    }
+
+    for (const part of front) {
+      if (part === bin) {
+        found = true;
+      }
+    }
+
+    if (!found) {
+      front.push(bin);
+    }
+  }
+
+  if (front.length === 0) {
+    return path;
+  }
+
+  const head = front.join(separator);
+
+  if (path.length === 0) {
+    return head;
+  }
+
+  return `${head}${separator}${path}`;
 }
 
 function prependPython(

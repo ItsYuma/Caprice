@@ -11,6 +11,7 @@ import {
   launchEnv,
   launcherPath,
   launcherText,
+  prependHomeBins,
   missingNames,
   parseSetupArgs,
   platformOf,
@@ -177,6 +178,15 @@ test("a shell variable wins over the saved config and python stays on PATH", () 
   expect(merged.ttsVoice).toBe("mira");
   expect(merged.python).toBe("/data/caprice/python/bin/python3");
   expect(merged.path).toBe("/data/caprice/python/bin:/usr/bin");
+  expect(prependHomeBins("windows", "C:\\Users\\ada", "C:\\Windows")).toBe(
+    "C:\\Users\\ada\\.cargo\\bin;C:\\Users\\ada\\.bun\\bin;C:\\Windows",
+  );
+  expect(
+    prependHomeBins("linux", "/home/ada", "/home/ada/.cargo/bin:/usr/bin"),
+  ).toBe("/home/ada/.bun/bin:/home/ada/.cargo/bin:/usr/bin");
+  expect(launcherText("windows", "C:\\work\\caprice", "")).toContain(
+    "$env:USERPROFILE\\.cargo\\bin",
+  );
   expect(containerCommand("/work/caprice", "caprice", merged)).toContain(
     "CAPRICE_MODEL_URL='\\''http://other.example/v1/chat/completions'\\''",
   );

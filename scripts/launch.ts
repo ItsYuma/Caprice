@@ -5,6 +5,7 @@ import {
   containerCommand,
   launchEnv,
   platformOf,
+  prependHomeBins,
   readConfig,
   type LaunchEnv,
 } from "./layout.ts";
@@ -42,6 +43,8 @@ async function launch(): Promise<number> {
 
   const merged =
     saved === undefined ? current : launchEnv(saved, current, platform);
+
+  merged.path = prependHomeBins(platform, home, merged.path);
 
   if (merged.modelUrl.length === 0 || merged.model.length === 0) {
     console.error(

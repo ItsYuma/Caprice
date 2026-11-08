@@ -108,14 +108,40 @@ function Install-CapricePython {
   Write-Error "Python installed but python.exe was not found."
 }
 
+function Install-CapriceRust {
+  $cargoBin = Join-Path $env:USERPROFILE ".cargo\bin"
+  $rustup = Join-Path $cargoBin "rustup.exe"
+  if (-not (Test-Path -LiteralPath $rustup)) {
+    $arch = "x86_64"
+    if ($env:PROCESSOR_ARCHITECTURE -eq "ARM64") {
+      $arch = "aarch64"
+    }
+    $init = Join-Path $env:TEMP "rustup-init.exe"
+    Write-Host "Downloading rustup"
+    [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+    Invoke-WebRequest -Uri "https://win.rustup.rs/$arch" -OutFile $init
+    Write-Host "Installing rustup"
+    $proc = Start-Process -FilePath $init -ArgumentList @("-y", "--default-toolchain", "none") -Wait -PassThru
+    if ($proc.ExitCode -ne 0) {
+      Write-Error "rustup-init exited with $($proc.ExitCode)"
+    }
+  }
+  $env:PATH = "$cargoBin;$env:PATH"
+  & $rustup toolchain install 1.99.1 --profile minimal --component rustfmt --component clippy
+  if ($LASTEXITCODE -ne 0) {
+    Write-Error "rustup could not install 1.99.1"
+  }
+  if (-not (Test-Path -LiteralPath (Join-Path $cargoBin "cargo.exe"))) {
+    Write-Error "cargo.exe was not found."
+  }
+}
+
 if (-not $SkipSystem) {
   $webview = Get-ItemProperty -Path "HKLM:\SOFTWARE\WOW6432Node\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}" -ErrorAction SilentlyContinue
   if (-not $webview) {
     Install-CapriceTool "Microsoft.EdgeWebView2Runtime"
   }
-  if (-not (Get-Command rustup -ErrorAction SilentlyContinue)) {
-    Install-CapriceTool "Rustlang.Rustup"
-  }
+  Install-CapriceRust
 }
 
 $env:BUN_VERSION = "1.4.4"
