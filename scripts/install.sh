@@ -215,7 +215,22 @@ enter_fedora() {
   if [[ "${#forward[@]}" -gt 0 ]]; then
     quoted="$(printf '%q ' "${forward[@]}")"
   fi
-  exec distrobox enter caprice -- bash -lc "cd $(printf '%q' "$ROOT") && export CAPRICE_CONTAINER=1 && exec scripts/install.sh --container caprice ${quoted}"
+  exec_without_shell_functions distrobox enter caprice -- bash -lc "cd $(printf '%q' "$ROOT") && export CAPRICE_CONTAINER=1 && exec scripts/install.sh --container caprice ${quoted}"
+}
+
+exec_without_shell_functions() {
+  local flags=()
+  local entry key
+  while IFS= read -r -d '' entry; do
+    key="${entry%%=*}"
+    case "$key" in
+      BASH_FUNC_*) flags+=("-u" "$key") ;;
+    esac
+  done < <(env -0)
+  if [[ "${#flags[@]}" -gt 0 ]]; then
+    exec env "${flags[@]}" "$@"
+  fi
+  exec "$@"
 }
 
 install_linux_packages() {

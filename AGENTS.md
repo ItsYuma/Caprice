@@ -22,7 +22,7 @@ From the repo root, with Bun 1.4.4:
 | `cargo fmt`                   | Format the shell                                       |
 | `cargo clippy -- -D warnings` | Rust lints for the shell. Warnings fail                |
 
-The shell needs Rust 1.99.1. Tauri 2.12 does not build on 1.83. `packages/desktop/src-tauri/rust-toolchain.toml` selects it.
+The shell needs Rust 1.99.1. Tauri 2.12 does not build on 1.83. `rust-toolchain.toml` at the repo root selects it. The Tauri CLI asks `rustc` from `packages/desktop`, and rustup only walks parent directories.
 
 Rocky Linux 9, RHEL 9, and AlmaLinux 9 ship WebKitGTK 4.0. The window links WebKitGTK 4.1. `scripts/install.sh` installs Podman and distrobox, creates a Fedora container named `caprice`, and finishes setup inside it. `config.json` records that container. `bun run dev` enters it.
 

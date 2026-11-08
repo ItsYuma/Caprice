@@ -4,6 +4,7 @@ import {
   barkDir,
   barkFileNames,
   capriceDataDir,
+  commandEnv,
   configText,
   containerCommand,
   filled,
@@ -182,4 +183,17 @@ test("a shell variable wins over the saved config and python stays on PATH", () 
   expect(containerCommand("/work/caprice", "caprice", merged)).toContain(
     "CAPRICE_PYTHON='\\''/data/caprice/python/bin/python3'\\''",
   );
+  expect(containerCommand("/work/caprice", "caprice", merged)).toContain(
+    "BASH_FUNC_",
+  );
+  expect(
+    commandEnv([
+      ["PATH", "/usr/bin"],
+      ["BASH_FUNC_which%%", "() { ( true; }"],
+      ["HOME", "/home/ada"],
+    ]),
+  ).toEqual([
+    ["PATH", "/usr/bin"],
+    ["HOME", "/home/ada"],
+  ]);
 });

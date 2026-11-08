@@ -331,8 +331,8 @@ export function shellQuote(value: string): string {
 
 export function posixLauncher(repo: string, container: string): string {
   if (container.length > 0) {
-    return `#!/bin/sh
-set -eu
+    return `#!/bin/bash
+set -euo pipefail
 ${containerCommand(repo, container, blankLaunch())}
 `;
   }
@@ -388,7 +388,46 @@ export function containerCommand(
     .filter((line) => line.length > 0)
     .join("; ");
 
-  return `export PATH="$HOME/.local/bin:$PATH"; exec distrobox enter ${shellQuote(container)} -- bash -lc ${shellQuote(inner)}`;
+  return withoutExportedShellFunctions(
+    `export PATH="$HOME/.local/bin:$PATH"; exec distrobox enter ${shellQuote(container)} -- bash -lc ${shellQuote(inner)}`,
+  );
+}
+
+export function commandEnv(
+  entries: readonly (readonly [string, string])[],
+): readonly (readonly [string, string])[] {
+  const kept: (readonly [string, string])[] = [];
+
+  for (const entry of entries) {
+    if (entry[0].startsWith("BASH_FUNC_")) {
+      continue;
+    }
+
+    kept.push(entry);
+  }
+
+  return kept;
+}
+
+function withoutExportedShellFunctions(command: string): string {
+  const entryKey = "$" + "{entry%%=*}";
+  const keyRef = "$" + "{key}";
+  const flagCount = "$" + "{#flags[@]}";
+  const flagsRef = "$" + "{flags[@]}";
+
+  return `flags=()
+entry=""
+key=""
+while IFS= read -r -d '' entry; do
+  key="${entryKey}"
+  case "${keyRef}" in
+    BASH_FUNC_*) flags+=("-u" "${keyRef}") ;;
+  esac
+done < <(env -0)
+if [[ ${flagCount} -gt 0 ]]; then
+  exec env "${flagsRef}" bash -c ${shellQuote(command)}
+fi
+${command}`;
 }
 
 export type LaunchEnv = {

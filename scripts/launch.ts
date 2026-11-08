@@ -1,5 +1,6 @@
 import {
   capriceDataDir,
+  commandEnv,
   configPath,
   containerCommand,
   launchEnv,
@@ -55,6 +56,7 @@ async function launch(): Promise<number> {
       ["bash", "-lc", containerCommand(process.cwd(), container, merged)],
       {
         cwd: process.cwd(),
+        env: spawnEnv(),
         stdin: "inherit",
         stdout: "inherit",
         stderr: "inherit",
@@ -70,6 +72,7 @@ async function launch(): Promise<number> {
     [process.execPath, "run", "--filter", "@caprice/desktop", "tauri", "dev"],
     {
       cwd: process.cwd(),
+      env: spawnEnv(),
       stdin: "inherit",
       stdout: "inherit",
       stderr: "inherit",
@@ -113,6 +116,22 @@ function apply(env: LaunchEnv): void {
   setEnv("CAPRICE_TTS_VOICE", env.ttsVoice);
   setEnv("CAPRICE_PYTHON", env.python);
   setEnv("PATH", env.path);
+}
+
+function spawnEnv() {
+  const entries: (readonly [string, string])[] = [];
+
+  for (const key of Object.keys(process.env)) {
+    const value = process.env[key];
+
+    if (value === undefined) {
+      continue;
+    }
+
+    entries.push([key, value]);
+  }
+
+  return Object.fromEntries(commandEnv(entries));
 }
 
 function setEnv(key: string, value: string): void {
