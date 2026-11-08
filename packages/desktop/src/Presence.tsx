@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { amplitudeAt, subscribePlayback, type Frame } from "./playback.ts";
 import {
@@ -15,10 +15,10 @@ export type PresenceProps = {
   hold: TalkHold | undefined;
   hint: string;
   problem: string;
+  credit: string;
 };
 
 export function Presence(props: PresenceProps) {
-  const figure = useRef<HTMLDivElement>(null);
   const canvas = useRef<HTMLCanvasElement>(null);
   const button = useRef<HTMLButtonElement>(null);
   const frame = useRef<Frame>(resting());
@@ -46,7 +46,7 @@ export function Presence(props: PresenceProps) {
     let frameId = 0;
 
     const tick = (now: number) => {
-      paintPresence(figure.current, canvas.current, frame.current, mode, now);
+      paintPresence(canvas.current, frame.current, mode, now);
       frameId = requestAnimationFrame(tick);
     };
 
@@ -57,98 +57,45 @@ export function Presence(props: PresenceProps) {
     };
   }, [mode]);
 
-  const open = mode !== "idle" || props.problem.length > 0;
-
   return (
-    <div className="presence" data-mode={mode}>
-      {open ? (
-        <Hud mode={mode} problem={props.problem}>
-          {mode === "speaking" ? (
-            <canvas ref={canvas} className="wave" aria-hidden="true" />
-          ) : null}
-        </Hud>
-      ) : null}
-      <button
-        ref={button}
-        id="talk"
-        type="button"
-        data-phase={props.phase}
-        aria-label="Hold to talk"
-        aria-keyshortcuts={talkChordLabel()}
-        title={props.hint}
-      >
-        <div ref={figure} className="figure">
-          <Figure />
-        </div>
-      </button>
-    </div>
-  );
-}
-
-function Figure() {
-  return (
-    <svg viewBox="0 0 200 340" width="200" height="340" aria-hidden="true">
-      <path
-        className="hair"
-        d="M62 118c0-62 28-92 70-92 36 0 58 28 54 64-6 8-20 10-32 6 8 14 6 32-6 42-22-6-40-6-54-2-16-6-32-10-32-18z"
-      />
-      <path
-        className="streak"
-        d="M146 40c18 10 24 28 14 44-12-8-18-22-14-44z"
-      />
-      <ellipse className="face" cx="100" cy="112" rx="30" ry="34" />
-      <circle className="eye" cx="90" cy="110" r="4.5" />
-      <circle className="eye" cx="114" cy="110" r="4.5" />
-      <path className="body" d="M72 152h56l12 86H60z" />
-      <path className="panel" d="M86 166h28l3 40H83z" />
-      <path className="mark" d="M130 172h8l5 26h-8z" />
-      <path className="leg" d="M74 238h20l-2 78H68z" />
-      <path className="leg" d="M106 238h20l6 78h-22z" />
-    </svg>
-  );
-}
-
-function Hud(props: {
-  mode: PresenceMode;
-  problem: string;
-  children: ReactNode;
-}) {
-  const named = props.mode === "thinking" || props.mode === "speaking";
-
-  return (
-    <div className="hud">
-      <div className="hud-chamfer-box">
-        <div className="hud-chamfer-box-inner">
-          <div className="hud-copy">
-            {props.mode === "listening" ? (
-              <p className="listen">[LISTENING...]</p>
-            ) : null}
-            {named ? (
+    <button
+      ref={button}
+      id="talk"
+      type="button"
+      data-phase={props.phase}
+      data-mode={mode}
+      aria-label="Hold to talk"
+      aria-keyshortcuts={talkChordLabel()}
+      title={props.hint}
+    >
+      <div className="hud">
+        <div className="hud-chamfer-box">
+          <div className="hud-chamfer-box-inner">
+            <div className="hud-copy">
               <p className="tag">
                 <span>&gt; capri:</span>
-                {props.mode === "thinking" ? (
+                {mode === "thinking" ? (
                   <span className="processing">[PROCESSING...]</span>
                 ) : null}
+                {mode === "listening" ? (
+                  <span className="listen">[LISTENING...]</span>
+                ) : null}
               </p>
-            ) : null}
-            {props.mode === "thinking" ? <Thinking /> : null}
-            {props.children}
-            {props.problem.length > 0 ? (
-              <p id="problem">{props.problem}</p>
-            ) : null}
+              {mode === "thinking" ? <Thinking /> : null}
+              {mode === "speaking" ? (
+                <canvas ref={canvas} className="wave" aria-hidden="true" />
+              ) : null}
+              {props.problem.length > 0 ? (
+                <p id="problem">{props.problem}</p>
+              ) : null}
+              {props.credit.length > 0 ? (
+                <p id="voice-credit">{props.credit}</p>
+              ) : null}
+            </div>
           </div>
         </div>
       </div>
-      <svg className="tail" viewBox="0 0 20 12" aria-hidden="true">
-        <polygon
-          points="1,0 6,11 18,0"
-          fill="#080a12"
-          stroke="#00f0ff"
-          strokeWidth="2"
-          strokeLinejoin="round"
-        />
-      </svg>
-    </div>
+    </button>
   );
 }
 
@@ -309,23 +256,16 @@ function resting(): Frame {
 }
 
 function paintPresence(
-  figure: HTMLDivElement | null,
   canvas: HTMLCanvasElement | null,
   frame: Frame,
   mode: PresenceMode,
   now: number,
 ): void {
-  const amplitude = sineAmplitude(mode, frame);
-
-  if (figure !== null) {
-    figure.style.setProperty("--amp", amplitude.toFixed(4));
-    figure.dataset.live = mode === "speaking" ? "true" : "false";
-    figure.dataset.mode = mode;
-  }
-
   if (canvas === null) {
     return;
   }
+
+  const amplitude = sineAmplitude(mode, frame);
 
   const context = canvas.getContext("2d");
 

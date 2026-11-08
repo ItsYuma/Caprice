@@ -13,7 +13,7 @@ On Windows, run `powershell -ExecutionPolicy Bypass -File scripts\install.ps1` w
 
 Rocky Linux 9, RHEL 9, and AlmaLinux 9 ship WebKitGTK 4.0. The installer creates a Fedora container named `caprice` and the window runs there. `bun run dev` enters that container.
 
-The window is a clear always-on companion with no title bar and no transcript. A chamfered bubble says thinking, then shows a sine wave while the reply plays. The last 20 lines stay in `localStorage` for the next launch. The screen does not show them. The figure is original.
+The window is the chamfered box, with no title bar and no transcript. It says thinking, then shows a sine wave while the reply plays. The last 20 lines stay in `localStorage` for the next launch. The screen does not show them.
 
 `CAPRICE_MODEL_URL` and `CAPRICE_MODEL` are required. Hearing needs `CAPRICE_STT_MODEL`. `CAPRICE_STT_ENGINE=bark` loads Underdog Bark 3.0 Pro from that directory (`config.json`, `tokenizer.json`, `model.safetensors`) once. Empty `CAPRICE_STT_ENGINE`, or `onnx`, loads an int8 ONNX directory (`encoder`, decoder, `nemo128.onnx`, `vocab.txt`) instead. Spoken replies use `CAPRICE_TTS_ENGINE`. Empty or `http` also needs `CAPRICE_TTS_URL` and `CAPRICE_TTS_MODEL`. `woof` needs `CAPRICE_TTS_WOOF`. `CAPRICE_PYTHON` is the interpreter when it is set. Empty uses `python3`. Nothing in the repo picks a host, a port, or a model path. The Bark weights are CC BY-NC 4.0. Woof's credit line is `Voice by Underdog Woof`. Commercial use is outside that licence.
 

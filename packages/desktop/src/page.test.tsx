@@ -11,7 +11,7 @@ import {
 } from "./Presence.tsx";
 import type { Frame } from "./playback.ts";
 
-test("the window shows the figure and hides the conversation", () => {
+test("the window is the box and hides the conversation", () => {
   const html = renderToStaticMarkup(
     <CapricePage
       problem="the model request failed"
@@ -30,8 +30,9 @@ test("the window shows the figure and hides the conversation", () => {
   expect(html).toContain('id="problem"');
   expect(html).toContain("the model request failed");
   expect(html).toContain("Voice by Underdog Woof");
+  expect(html).toContain("&gt; capri:");
   expect(html).not.toContain('id="thinking"');
-  expect(html).not.toContain("&gt; capri:");
+  expect(html).not.toContain("hair");
   expect(html).not.toContain("Show text");
   expect(html).not.toContain("Say something");
   expect(html).not.toContain("data-who");

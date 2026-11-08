@@ -29,10 +29,8 @@ export function CapricePage(props: CapricePageProps) {
           hold={props.hold}
           hint={props.hint}
           problem={props.problem}
+          credit={props.credit}
         />
-        {props.credit.length > 0 ? (
-          <p id="voice-credit">{props.credit}</p>
-        ) : null}
       </div>
     </main>
   );
