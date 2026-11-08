@@ -165,6 +165,32 @@ test("playback failure rejects could not play speech", async () => {
   }
 });
 
+test("a device that never opens plays the clip", async () => {
+  script = "frozen";
+  install(ScriptedContext);
+  installFrameHold();
+  installClip();
+
+  try {
+    const seen: boolean[] = [];
+
+    const stop = subscribePlayback((frame) => {
+      seen.push(frame.live);
+    });
+
+    await playSpeech(new Uint8Array([1, 2, 3, 4]), 20);
+    expect(seen.includes(true)).toBe(true);
+    expect(ScriptedContext.latest?.started).toBe(0);
+    expect(ScriptedContext.latest?.decoded).toBe(0);
+    expect(ScriptedClip.played).toBe(1);
+    stop();
+  } finally {
+    restore();
+    restoreFrame();
+    restoreClip();
+  }
+});
+
 test("a suspended device rejects without playing", async () => {
   script = "stuck";
   install(ScriptedContext);
@@ -191,7 +217,7 @@ test("a suspended device rejects without playing", async () => {
   }
 });
 
-type Script = "play" | "resume" | "decode" | "start" | "stuck";
+type Script = "play" | "resume" | "decode" | "start" | "stuck" | "frozen";
 
 let script: Script = "play";
 
@@ -257,8 +283,10 @@ class ScriptedContext {
       return Promise.reject(new Error("device"));
     }
 
-    if (script === "stuck") {
-      this.state = "suspended";
+    if (script === "stuck" || script === "frozen") {
+      if (script === "stuck") {
+        this.state = "suspended";
+      }
 
       return new Promise(() => undefined);
     }
@@ -293,6 +321,81 @@ const originalFrame = Object.getOwnPropertyDescriptor(
   globalThis,
   "requestAnimationFrame",
 );
+
+class ScriptedClip {
+  static played = 0;
+
+  play(): Promise<void> {
+    ScriptedClip.played += 1;
+    queueMicrotask(() => {
+      this.onended?.();
+    });
+
+    return Promise.resolve();
+  }
+
+  pause(): void {}
+
+  addEventListener(kind: string, listener: () => void): void {
+    if (kind === "ended") {
+      this.onended = listener;
+    }
+  }
+
+  private onended: (() => void) | undefined;
+}
+
+const originalAudio = Object.getOwnPropertyDescriptor(globalThis, "Audio");
+const originalCreate = Object.getOwnPropertyDescriptor(URL, "createObjectURL");
+const originalRevoke = Object.getOwnPropertyDescriptor(URL, "revokeObjectURL");
+
+function installClip(): void {
+  ScriptedClip.played = 0;
+
+  Object.defineProperty(globalThis, "Audio", {
+    configurable: true,
+    writable: true,
+    value: ScriptedClip,
+  });
+  Object.defineProperty(URL, "createObjectURL", {
+    configurable: true,
+    writable: true,
+    value: () => "blob:caprice",
+  });
+  Object.defineProperty(URL, "revokeObjectURL", {
+    configurable: true,
+    writable: true,
+    value: () => undefined,
+  });
+}
+
+function restoreClip(): void {
+  if (originalAudio === undefined) {
+    Reflect.deleteProperty(globalThis, "Audio");
+  } else {
+    Object.defineProperty(globalThis, "Audio", originalAudio);
+  }
+
+  if (originalCreate === undefined) {
+    Reflect.deleteProperty(URL, "createObjectURL");
+  } else {
+    Object.defineProperty(URL, "createObjectURL", originalCreate);
+  }
+
+  if (originalRevoke === undefined) {
+    Reflect.deleteProperty(URL, "revokeObjectURL");
+  } else {
+    Object.defineProperty(URL, "revokeObjectURL", originalRevoke);
+  }
+}
+
+function installFrameHold(): void {
+  Object.defineProperty(globalThis, "requestAnimationFrame", {
+    configurable: true,
+    writable: true,
+    value: () => 1,
+  });
+}
 
 function installFrame(): void {
   Object.defineProperty(globalThis, "requestAnimationFrame", {

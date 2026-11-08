@@ -2,6 +2,8 @@ const playbackFailed = "could not play speech";
 
 const playheadSeconds = 0.032;
 
+const deviceLimit = 1500;
+
 export type Frame = {
   live: boolean;
   samples: Float32Array;
@@ -79,34 +81,53 @@ export function subscribePlayback(hear: (frame: Frame) => void): () => void {
   };
 }
 
-export async function playSpeech(bytes: Uint8Array): Promise<void> {
+export async function playSpeech(
+  bytes: Uint8Array,
+  limit = deviceLimit,
+): Promise<void> {
   if (bytes.byteLength === 0) {
     return;
   }
 
   const mine = generation + 1;
   generation = mine;
-  const previous = activeStop;
-  activeStop = undefined;
-  previous?.();
+  releaseActive();
 
-  let context: AudioContext | undefined;
+  const held: Held = { context: undefined };
+  let opened: Opened | "stale" | undefined;
 
   try {
-    context = new AudioContext();
-    await resumeContext(context);
+    opened = await firstReady(openDevice(bytes, mine, held), limit);
+  } catch (error) {
+    releaseDevice(held);
 
-    if (mine !== generation) {
-      return;
+    if (mine === generation) {
+      publish(restFrame());
     }
 
-    const audio = await context.decodeAudioData(copiedBytes(bytes));
-
-    if (mine !== generation) {
-      return;
+    if (isPlaybackFailure(error)) {
+      throw error;
     }
 
-    await playBuffer(context, audio, mine);
+    throw new Error(playbackFailed);
+  }
+
+  if (opened === undefined) {
+    retire(mine);
+    releaseDevice(held);
+    await playClip(bytes);
+
+    return;
+  }
+
+  if (opened === "stale") {
+    releaseDevice(held);
+
+    return;
+  }
+
+  try {
+    await playBuffer(opened.context, opened.audio, mine);
   } catch (error) {
     if (mine === generation) {
       publish(restFrame());
@@ -118,10 +139,170 @@ export async function playSpeech(bytes: Uint8Array): Promise<void> {
 
     throw new Error(playbackFailed);
   } finally {
-    if (context !== undefined) {
-      await closeContext(context);
-    }
+    releaseDevice({ context: opened.context });
   }
+}
+
+type Held = {
+  context: AudioContext | undefined;
+};
+
+type Opened = {
+  context: AudioContext;
+  audio: AudioBuffer;
+};
+
+function releaseActive(): void {
+  const previous = activeStop;
+
+  activeStop = undefined;
+  previous?.();
+}
+
+function retire(mine: number): void {
+  if (generation === mine) {
+    generation = mine + 1;
+  }
+}
+
+function releaseDevice(held: Held): void {
+  const context = held.context;
+
+  held.context = undefined;
+
+  if (context !== undefined) {
+    closeContext(context);
+  }
+}
+
+function firstReady<T>(
+  pending: Promise<T>,
+  limit: number,
+): Promise<T | undefined> {
+  return new Promise((resolve, reject) => {
+    let settled = false;
+
+    const timer = setTimeout(() => {
+      if (settled) {
+        return;
+      }
+
+      settled = true;
+      resolve(undefined);
+    }, limit);
+
+    pending.then(
+      (value) => {
+        if (settled) {
+          return;
+        }
+
+        settled = true;
+        clearTimeout(timer);
+        resolve(value);
+      },
+      (error) => {
+        if (settled) {
+          return;
+        }
+
+        settled = true;
+        clearTimeout(timer);
+        reject(error);
+      },
+    );
+  });
+}
+
+async function openDevice(
+  bytes: Uint8Array,
+  mine: number,
+  held: Held,
+): Promise<Opened | "stale"> {
+  const context = new AudioContext();
+
+  held.context = context;
+  await resumeContext(context);
+
+  if (mine !== generation) {
+    return "stale";
+  }
+
+  const audio = await context.decodeAudioData(copiedBytes(bytes));
+
+  if (mine !== generation) {
+    return "stale";
+  }
+
+  return { context, audio };
+}
+
+function playClip(bytes: Uint8Array): Promise<void> {
+  const mine = generation + 1;
+
+  generation = mine;
+
+  const url = URL.createObjectURL(new Blob([copiedBytes(bytes)]));
+  const audio = new Audio(url);
+
+  return new Promise((resolve, reject) => {
+    let settled = false;
+
+    const finish = (failed: boolean) => {
+      if (settled) {
+        return;
+      }
+
+      settled = true;
+
+      if (activeStop === stop) {
+        activeStop = undefined;
+      }
+
+      URL.revokeObjectURL(url);
+
+      if (mine === generation) {
+        publish(restFrame());
+      }
+
+      if (failed) {
+        reject(new Error(playbackFailed));
+
+        return;
+      }
+
+      resolve();
+    };
+
+    const stop = () => {
+      audio.pause();
+      finish(false);
+    };
+
+    activeStop = stop;
+    audio.addEventListener("ended", () => {
+      finish(false);
+    });
+    audio.addEventListener("error", () => {
+      finish(true);
+    });
+
+    void audio.play().then(
+      () => undefined,
+      () => {
+        finish(true);
+      },
+    );
+
+    if (!settled && mine === generation) {
+      publish({
+        live: true,
+        samples: new Float32Array(),
+        rate: 0,
+        heard: 0,
+      });
+    }
+  });
 }
 
 function publish(frame: Frame): void {
@@ -309,8 +490,8 @@ function resumeContext(context: AudioContext): Promise<void> {
   });
 }
 
-async function closeContext(context: AudioContext): Promise<void> {
-  await context.close().then(
+function closeContext(context: AudioContext): void {
+  void context.close().then(
     () => undefined,
     () => undefined,
   );
