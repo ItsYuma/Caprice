@@ -1,11 +1,32 @@
 use base64::engine::general_purpose::STANDARD;
 use base64::Engine;
 
-#[tauri::command]
-pub(crate) async fn speech_speak(text: String) -> Result<String, String> {
-    if text.trim().is_empty() {
-        return Ok(String::new());
+use super::reply;
+
+fn encode_audio(bytes: &[u8]) -> String {
+    if bytes.is_empty() {
+        String::new()
+    } else {
+        STANDARD.encode(bytes)
     }
+}
+
+#[tauri::command]
+pub(crate) async fn speech_speak(
+    state: tauri::State<'_, super::ReplyState>,
+    text: String,
+) -> Result<String, String> {
+    let state = state.inner().clone();
+    let bytes = reply::perform(&state, text).await?;
+    Ok(encode_audio(&bytes))
+}
+
+#[tauri::command]
+pub(crate) fn speech_credit() -> Result<String, String> {
+    reply::credit()
+}
+
+pub(super) async fn post(text: String) -> Result<Vec<u8>, String> {
     let url = match std::env::var("CAPRICE_TTS_URL") {
         Ok(url) if !url.is_empty() => url,
         _ => return Err("speech is not configured".to_string()),
@@ -41,7 +62,7 @@ pub(crate) async fn speech_speak(text: String) -> Result<String, String> {
     if !status.is_success() {
         return Err(format!("speech request failed: {}", status.as_u16()));
     }
-    Ok(STANDARD.encode(bytes))
+    Ok(bytes.to_vec())
 }
 
 #[cfg(test)]

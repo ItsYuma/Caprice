@@ -29,7 +29,7 @@ Done.
 - `listenAndSay` passes that text to `say`, then the page plays the capri line
 - The listener is `captureListener`. Inside the Tauri window, Rust records the default microphone and a speech worker transcribes it. The worker loads the selected engine once and stays until the window exits
 - `CAPRICE_STT_ENGINE=bark` loads Underdog Bark 3.0 Pro from `CAPRICE_STT_MODEL` (`config.json`, `tokenizer.json`, `model.safetensors`). Empty or `onnx` loads the int8 ONNX directory. No model path is hardcoded
-- Spoken replies need `CAPRICE_TTS_URL` and `CAPRICE_TTS_MODEL`. Optional `CAPRICE_TTS_VOICE` and `CAPRICE_TTS_API_KEY`. Rust posts inside the window. The page plays the bytes. There is no resident TTS model
+- Spoken replies use `CAPRICE_TTS_ENGINE`. Empty or `http` posts to `CAPRICE_TTS_URL` with `CAPRICE_TTS_MODEL`. Optional `CAPRICE_TTS_VOICE` and `CAPRICE_TTS_API_KEY`. `woof` is a resident `python3` child pointed at the Underdog Woof directory in `CAPRICE_TTS_WOOF`. Rust returns the bytes. The page plays them
 - `scriptedListener` and `recordingSpeaker` stay for tests
 - No microphone name, sample rate, host, or model id is hardcoded. Caprice does not shell out to Handy or Parakeet and does not use the Web Speech API
 - WebKitGTK does not matter for speech. A window manager can still steal Alt+Space. The button still works

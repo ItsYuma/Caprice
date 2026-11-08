@@ -9,4 +9,8 @@ fn engine_kind_names_the_loader() {
         EngineKind::parse("whisper").unwrap_err(),
         "unknown speech engine: whisper"
     );
+    assert_eq!(
+        EngineKind::parse("woof").unwrap_err(),
+        "unknown speech engine: woof"
+    );
 }
