@@ -28,25 +28,25 @@ h1 {
   color: #e38bb8;
 }
 
-#log {
+.log {
   flex: 1;
   display: flex;
   flex-direction: column;
   gap: 8px;
 }
 
-#log p {
+.log p {
   margin: 0;
   padding: 10px 12px;
   border-radius: 12px;
 }
 
-#log p[data-who="host"] {
+.log p[data-who="host"] {
   align-self: flex-end;
   background: #241820;
 }
 
-#log p[data-who="capri"] {
+.log p[data-who="capri"] {
   align-self: flex-start;
   background: #3a1830;
   color: #ffd0e4;

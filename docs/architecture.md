@@ -7,7 +7,7 @@ Caprice is a desktop companion. The shell is Tauri. The session, the model, and 
 ```mermaid
 flowchart TB
   subgraph shell [packages/desktop]
-    window[Tauri window]
+    window[React page]
     host[sayAndSpeak]
   end
   subgraph voice [packages/voice]
@@ -28,7 +28,7 @@ flowchart TB
   session --> tools
 ```
 
-The listener is not wired. The next voice milestone connects `listen` to `say`. The speaker is wired: `sayAndSpeak` speaks the capri line. The window calls `chatModel`. `persona` is the system message. Each line becomes a user or assistant message. `hostText` is sent only when it is not already the last host line. `CAPRICE_MODEL_URL` is the full chat URL. `CAPRICE_MODEL` is the model name in the body. Neither has a default in the source. Inside the Tauri window those values come from the process environment, and Rust posts the request. Outside it, Vite passes the same names through and `postJson` posts. `tryCatch` turns a rejected request into a `Result`. The page checks `ok` before it reads `value`. A failed reply leaves the host line in the session, and the page shows `error.message`. The stub model remains for tests. It ignores the persona and quotes the host. Tools are stored on the session and are not called yet.
+The page is React. `useSession` opens the session and sends a line. `Log` renders the lines. `Composer` is the form. The listener is not wired. The next voice milestone connects `listen` to `say`. The speaker is wired: `sayAndSpeak` speaks the capri line. The window calls `chatModel`. `persona` is the system message. Each line becomes a user or assistant message. `hostText` is sent only when it is not already the last host line. `CAPRICE_MODEL_URL` is the full chat URL. `CAPRICE_MODEL` is the model name in the body. Neither has a default in the source. Inside the Tauri window those values come from the process environment, and Rust posts the request. Outside it, Vite passes the same names through and `postJson` posts. `tryCatch` turns a rejected request into a `Result`. The page checks `ok` before it reads `value`. A failed reply leaves the host line in the session, and the page shows `error.message`. The stub model remains for tests. It ignores the persona and quotes the host. Tools are stored on the session and are not called yet.
 
 ```mermaid
 sequenceDiagram

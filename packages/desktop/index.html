@@ -2,21 +2,11 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <link rel="stylesheet" href="/src/styles.css" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Caprice</title>
-    <script type="module" src="/src/main.ts" defer></script>
   </head>
   <body>
-    <main>
-      <h1>Caprice</h1>
-      <p class="lede">Hey. Your computer has a girl in it now.</p>
-      <div id="log"></div>
-      <form id="say">
-        <label for="host">Say something</label>
-        <input id="host" name="host" autocomplete="off" />
-        <button type="submit">Send</button>
-      </form>
-    </main>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

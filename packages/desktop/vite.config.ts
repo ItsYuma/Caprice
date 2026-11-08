@@ -1,8 +1,10 @@
+import react from "@vitejs/plugin-react";
 import { defineConfig } from "vite";
 
 const repoRoot = new URL("../..", import.meta.url).pathname;
 
 export default defineConfig({
+  plugins: [react()],
   clearScreen: false,
   envPrefix: ["VITE_", "CAPRICE_"],
   server: {

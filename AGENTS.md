@@ -28,7 +28,7 @@ Stable Bun 1.4.4 has `bun test`, `bun fmt`, and `bun check`. `bun lint` in that 
 | ------------------------ | ----------------------------------------------------- |
 | `packages/core`          | `Session`, `Model`, `Tool`, `Result`, persona slicing |
 | `packages/voice`         | `Listener` and `Speaker`                              |
-| `packages/desktop`       | Tauri window and `sayAndSpeak`                        |
+| `packages/desktop`       | React window and `sayAndSpeak`                        |
 | `skills/`                | Text the local model reads                            |
 | `docs/architecture.md`   | The diagram and the dependency rule                   |
 | `CAPRI.md`               | Character facts the product may use                   |
