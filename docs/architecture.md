@@ -28,7 +28,7 @@ flowchart TB
   session --> tools
 ```
 
-The listener is not wired. The next voice milestone connects `listen` to `say`. The speaker is wired: `sayAndSpeak` speaks the capri line. The window calls `chatModel`. `persona` is the system message. Each line becomes a user or assistant message. `hostText` is sent only when it is not already the last host line. `CAPRICE_MODEL_URL` is the full chat URL. `CAPRICE_MODEL` is the model name in the body. Neither has a default in the source. Inside the Tauri window those values come from the process environment, and Rust posts the request. Outside it, Vite passes the same names through and the page posts. The stub model remains for tests. It ignores the persona and quotes the host. Tools are stored on the session and are not called yet.
+The listener is not wired. The next voice milestone connects `listen` to `say`. The speaker is wired: `sayAndSpeak` speaks the capri line. The window calls `chatModel`. `persona` is the system message. Each line becomes a user or assistant message. `hostText` is sent only when it is not already the last host line. `CAPRICE_MODEL_URL` is the full chat URL. `CAPRICE_MODEL` is the model name in the body. Neither has a default in the source. Inside the Tauri window those values come from the process environment, and Rust posts the request. Outside it, Vite passes the same names through and the page posts with `postJson`. `tryCatch` turns a rejected request into a result. The page takes the success branch before it reads the text. A failed reply leaves the host line in the session, and the page shows the error message. The stub model remains for tests. It ignores the persona and quotes the host. Tools are stored on the session and are not called yet.
 
 ```mermaid
 sequenceDiagram
@@ -37,8 +37,8 @@ sequenceDiagram
   participant Model
   Host->>Session: say
   Session->>Model: persona, lines, hostText
-  Model-->>Session: text
-  Session-->>Host: capri line
+  Model-->>Session: reply or error
+  Session-->>Host: capri line or error
 ```
 
 Rust opens the window. It does not own the session. Computer tools, when they exist, cross that bridge from a `Tool` in core to a host implementation. One tool, one file, registered by name.

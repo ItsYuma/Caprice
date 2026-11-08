@@ -9,5 +9,11 @@ test("sayAndSpeak speaks the capri line", async () => {
   const recording = recordingSpeaker();
   const line = await sayAndSpeak(session, recording.speaker, "yo");
 
-  expect(recording.spoken()).toEqual([line.text]);
+  expect(line.ok).toBe(true);
+
+  if (!line.ok) {
+    return;
+  }
+
+  expect(recording.spoken()).toEqual([line.value.text]);
 });
