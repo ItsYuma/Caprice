@@ -9,27 +9,35 @@ import {
   type Result,
   type Session,
 } from "@caprice/core";
-import { recordingSpeaker } from "@caprice/voice";
 import { invoke } from "@tauri-apps/api/core";
 import { useEffect, useRef, useState } from "react";
 import skill from "../../../skills/capri/SKILL.md?raw";
 
 import { loadModelEndpoint, type ShellModelEndpoint } from "./endpoint.ts";
-import { sayAndSpeak } from "./host.ts";
+import { listenAndSay, sayAndSpeak } from "./host.ts";
 import { postChat } from "./postChat.ts";
+import { bindTalk, holdToTalk, type TalkHold, type TalkPhase } from "./talk.ts";
+import { windowVoice } from "./windowVoice.ts";
 
-const recording = recordingSpeaker();
+const voice = windowVoice();
 
 export type CapriceSession = {
   lines: readonly Line[];
   problem: string;
   submit: (text: string) => boolean;
+  hold: TalkHold | undefined;
+  talkPhase: TalkPhase;
+  talkHint: string;
+  talkStatus: string;
 };
 
 export function useSession(): CapriceSession {
   const session = useRef<Session | undefined>(undefined);
   const [lines, setLines] = useState<readonly Line[]>([]);
   const [problem, setProblem] = useState("");
+  const [hold, setHold] = useState<TalkHold | undefined>(undefined);
+  const [talkPhase, setTalkPhase] = useState<TalkPhase>("idle");
+  const [talkStatus, setTalkStatus] = useState("");
 
   useEffect(() => {
     let current = true;
@@ -53,6 +61,58 @@ export function useSession(): CapriceSession {
     };
   }, []);
 
+  useEffect(() => {
+    const next = holdToTalk(
+      voice.listener,
+      async () => {
+        const current = session.current;
+
+        if (current === undefined) {
+          setProblem("the model is not configured");
+
+          return;
+        }
+
+        setTalkStatus("Listening");
+
+        const heard = await tryCatch(
+          listenAndSay(current, voice.listener, voice.speaker),
+          "the model request failed",
+        );
+
+        setLines(current.lines());
+
+        if (!heard.ok) {
+          setTalkStatus("");
+          setProblem(heard.error.message);
+
+          return;
+        }
+
+        if (heard.value === undefined) {
+          setTalkStatus("didn't catch that");
+
+          return;
+        }
+
+        if (!heard.value.ok) {
+          setTalkStatus("");
+          setProblem(heard.value.error.message);
+
+          return;
+        }
+
+        setTalkStatus("");
+        setProblem("");
+      },
+      setTalkPhase,
+    );
+
+    setHold(next);
+
+    return bindTalk(next);
+  }, []);
+
   function submit(text: string): boolean {
     const current = session.current;
     const trimmed = text.trim();
@@ -67,7 +127,7 @@ export function useSession(): CapriceSession {
   }
 
   async function send(current: Session, text: string): Promise<void> {
-    const line = await sayAndSpeak(current, recording.speaker, text);
+    const line = await sayAndSpeak(current, voice.speaker, text);
 
     setLines(current.lines());
 
@@ -80,7 +140,15 @@ export function useSession(): CapriceSession {
     setProblem("");
   }
 
-  return { lines, problem, submit };
+  return {
+    lines,
+    problem,
+    submit,
+    hold,
+    talkPhase,
+    talkHint: voice.hint,
+    talkStatus,
+  };
 }
 
 async function open(): Promise<Result<Session>> {
