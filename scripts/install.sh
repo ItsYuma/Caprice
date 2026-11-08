@@ -51,14 +51,27 @@ os_release_path() {
 }
 
 os_field() {
-  local name="$1"
+  local key="$1"
   local file
   file="$(os_release_path)"
   if [[ ! -r "$file" ]]; then
     printf ''
     return
   fi
-  (. "$file" && printf '%s' "${!name}")
+  local line value
+  while IFS= read -r line || [[ -n "$line" ]]; do
+    case "$line" in
+      "${key}="*)
+        value="${line#"${key}="}"
+        value="${value#\"}"
+        value="${value%\"}"
+        value="${value#\'}"
+        value="${value%\'}"
+        printf '%s' "$value"
+        return
+        ;;
+    esac
+  done < "$file"
 }
 
 rpm_query() {
