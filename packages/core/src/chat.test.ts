@@ -7,6 +7,7 @@ import {
   readAssistantContent,
   readModelEndpoint,
 } from "./chat.ts";
+import { ok } from "./result.ts";
 
 test("persona is the system message and the current line is not repeated", () => {
   const messages = messagesFromTurn({
@@ -78,7 +79,7 @@ test("chat model returns the assistant content", async () => {
         content: "voice",
       });
 
-      return "yo";
+      return ok("yo");
     },
   });
 
@@ -88,7 +89,7 @@ test("chat model returns the assistant content", async () => {
     hostText: "hi",
   });
 
-  expect(reply).toEqual({ text: "yo" });
+  expect(reply).toEqual({ ok: true, value: { text: "yo" } });
 });
 
 test("assistant content is the first choice message", () => {
@@ -147,7 +148,7 @@ test("http client posts the configured url, model, and key", async () => {
       ],
     });
 
-    expect(text).toBe("from the brain");
+    expect(text).toEqual({ ok: true, value: "from the brain" });
     expect(method).toBe("POST");
     expect(authorization).toBe("Bearer token-b");
     expect(contentType).toBe("application/json");
@@ -190,10 +191,56 @@ test("missing api key sends no authorization header", async () => {
       messages: [{ role: "user", content: "hi" }],
     });
 
-    expect(text).toBe("ok");
+    expect(text).toEqual({ ok: true, value: "ok" });
     expect(endpoint.apiKey).toBe("");
     expect(authorization).toBeNull();
   } finally {
     server.stop(true);
   }
+});
+
+test("http client returns the status error", async () => {
+  const server = Bun.serve({
+    port: 0,
+    fetch() {
+      return new Response("no", { status: 500 });
+    },
+  });
+
+  try {
+    const result = await httpChatClient({
+      url: new URL("/chat", server.url).href,
+      model: "brain-d",
+      apiKey: "",
+    }).complete({
+      messages: [{ role: "user", content: "hi" }],
+    });
+
+    expect(result.ok).toBe(false);
+
+    if (result.ok) {
+      return;
+    }
+
+    expect(result.error.message).toBe("model request failed: 500");
+  } finally {
+    server.stop(true);
+  }
+});
+
+test("http client returns a parse error", async () => {
+  const result = await httpChatClient(
+    { url: "http://unused.example", model: "brain-e", apiKey: "" },
+    async () => ok("{"),
+  ).complete({
+    messages: [],
+  });
+
+  expect(result.ok).toBe(false);
+
+  if (result.ok) {
+    return;
+  }
+
+  expect(result.error).toBeInstanceOf(SyntaxError);
 });

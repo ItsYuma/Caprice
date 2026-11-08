@@ -3,6 +3,9 @@ import {
   httpChatClient,
   openSession,
   personaText,
+  postJson,
+  tryCatch,
+  type Result,
   type Session,
 } from "@caprice/core";
 import { recordingSpeaker } from "@caprice/voice";
@@ -48,24 +51,15 @@ async function postChat(
   url: string,
   body: string,
   apiKey: string,
-): Promise<string> {
+): Promise<Result<string>> {
   if ("__TAURI_INTERNALS__" in window) {
-    return invoke<string>("model_complete", { url, body, apiKey });
+    return tryCatch(
+      invoke<string>("model_complete", { url, body, apiKey }),
+      "the model request failed",
+    );
   }
 
-  const headers = new Headers({ "content-type": "application/json" });
-
-  if (apiKey.length > 0) {
-    headers.set("authorization", `Bearer ${apiKey}`);
-  }
-
-  const response = await fetch(url, { method: "POST", headers, body });
-
-  if (!response.ok) {
-    throw new Error(`model request failed: ${response.status}`);
-  }
-
-  return response.text();
+  return postJson(url, body, apiKey);
 }
 
 form?.addEventListener("submit", (event) => {
@@ -84,40 +78,46 @@ form?.addEventListener("submit", (event) => {
   }
 
   field.value = "";
-  void sayAndSpeak(current, recording.speaker, text)
-    .then(() => {
-      paint();
-    })
-    .catch((error) => {
-      paint();
-      showProblem(
-        error instanceof Error ? error.message : "the model request failed",
-      );
-    });
+  void submitLine(current, text);
 });
 
+async function submitLine(current: Session, text: string): Promise<void> {
+  const line = await sayAndSpeak(current, recording.speaker, text);
+
+  paint();
+
+  if (!line.ok) {
+    showProblem(line.error.message);
+  }
+}
+
 async function start(): Promise<void> {
-  const endpoint = await loadModelEndpoint(
-    {
-      CAPRICE_MODEL_URL: import.meta.env.CAPRICE_MODEL_URL,
-      CAPRICE_MODEL: import.meta.env.CAPRICE_MODEL,
-      CAPRICE_MODEL_API_KEY: import.meta.env.CAPRICE_MODEL_API_KEY,
-    },
-    {
-      inShell: "__TAURI_INTERNALS__" in window,
-      readShell: () => invoke<ShellModelEndpoint>("model_endpoint"),
-    },
+  const loaded = await tryCatch(
+    loadModelEndpoint(
+      {
+        CAPRICE_MODEL_URL: import.meta.env.CAPRICE_MODEL_URL,
+        CAPRICE_MODEL: import.meta.env.CAPRICE_MODEL,
+        CAPRICE_MODEL_API_KEY: import.meta.env.CAPRICE_MODEL_API_KEY,
+      },
+      {
+        inShell: "__TAURI_INTERNALS__" in window,
+        readShell: () => invoke<ShellModelEndpoint>("model_endpoint"),
+      },
+    ),
+    "the model is not configured",
   );
+
+  if (!loaded.ok) {
+    showProblem(loaded.error.message);
+
+    return;
+  }
 
   session = openSession(
     personaText(skill),
-    chatModel(httpChatClient(endpoint, postChat)),
+    chatModel(httpChatClient(loaded.value, postChat)),
     [],
   );
 }
 
-void start().catch((error) => {
-  showProblem(
-    error instanceof Error ? error.message : "the model is not configured",
-  );
-});
+void start();
