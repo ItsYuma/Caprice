@@ -7,12 +7,12 @@
     "packages/*"
   ],
   "scripts": {
-    "test": "bun test",
+    "test": "bun test && bun test ./scripts/layout.test.ts",
     "lint": "oxlint",
     "format": "bun fmt",
     "format:check": "bun fmt --check",
-    "typecheck": "bun check packages/core && bun check packages/voice && bun check packages/desktop",
-    "dev": "bun run --filter @caprice/desktop tauri dev"
+    "typecheck": "bun check packages/core && bun check packages/voice && bun check packages/desktop && bun check scripts",
+    "dev": "bun scripts/launch.ts"
   },
   "devDependencies": {
     "@oxlint/plugins": "1.78.0",

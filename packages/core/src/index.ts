@@ -13,7 +13,7 @@ export type { Result } from "./result.ts";
 
 export { personaText } from "./persona.ts";
 
-export { openSession, stubModel } from "./session.ts";
+export { openSession, stubModel, threadLimit } from "./session.ts";
 
 export type {
   Line,

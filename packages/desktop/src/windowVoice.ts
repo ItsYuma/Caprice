@@ -1,10 +1,10 @@
 import type { PushListener, Speaker } from "@caprice/voice";
 import { invoke } from "@tauri-apps/api/core";
 
+import { playSpeech } from "./playback.ts";
 import {
   pageListener,
   pageSpeaker,
-  playSpeech,
   postSpeech,
   shellListener,
   shellSpeaker,
@@ -19,20 +19,43 @@ export type WindowVoice = {
   listener: PushListener;
   speaker: Speaker;
   hint: string;
+  watchVoice: (ready: (ms: number) => void) => () => void;
 };
 
 export function windowVoice(): WindowVoice {
   const inShell = "__TAURI_INTERNALS__" in window;
   const commands = inShell ? tauriCommands(speechBridge()) : undefined;
+  let noteVoice = (_ms: number) => {};
+
+  const watchVoice = (ready: (ms: number) => void) => {
+    const previous = noteVoice;
+
+    noteVoice = ready;
+
+    return () => {
+      noteVoice = previous;
+    };
+  };
+
+  const ready = (ms: number) => {
+    noteVoice(ms);
+  };
 
   return {
     inShell,
     hint: speechHint(inShell),
+    watchVoice,
     listener: commands === undefined ? pageListener() : shellListener(commands),
     speaker:
       commands === undefined
-        ? pageSpeaker(ttsEnv(), postSpeech, playSpeech)
-        : shellSpeaker(commands, playSpeech),
+        ? pageSpeaker(
+            ttsEnv(),
+            import.meta.env.CAPRICE_TTS_ENGINE ?? "",
+            postSpeech,
+            playSpeech,
+            ready,
+          )
+        : shellSpeaker(commands, playSpeech, ready),
   };
 }
 

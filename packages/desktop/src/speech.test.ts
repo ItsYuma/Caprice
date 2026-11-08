@@ -2,12 +2,12 @@ import { expect, test } from "bun:test";
 
 import {
   bytesFromBase64,
+  pageCanSpeak,
   pageListener,
+  readSpeechCredit,
   pageSpeaker,
-  playOpenClip,
   postSpeech,
   shellSpeaker,
-  speechBlob,
   speechUnconfigured,
   ttsExchange,
   modelUnavailable,
@@ -65,6 +65,7 @@ test("page speech posts json and plays the response bytes", async () => {
         CAPRICE_TTS_VOICE: "soft",
         CAPRICE_TTS_API_KEY: "token-a",
       },
+      "",
       postSpeech,
       async (bytes) => {
         played.push(Array.from(bytes));
@@ -111,6 +112,7 @@ test("page speech omits voice and authorization when they are empty", async () =
         CAPRICE_TTS_VOICE: " ",
         CAPRICE_TTS_API_KEY: "",
       },
+      "http",
       postSpeech,
       async () => {},
     );
@@ -160,6 +162,7 @@ test("empty audio is not played", async () => {
         CAPRICE_TTS_URL: server.url.href,
         CAPRICE_TTS_MODEL: "voice-c",
       },
+      " http ",
       postSpeech,
       async () => {
         plays += 1;
@@ -178,6 +181,7 @@ test("missing speech configuration does not post", async () => {
 
   const speaker = pageSpeaker(
     missingModel,
+    "",
     async () => {
       posts += 1;
 
@@ -206,53 +210,62 @@ test("standard base64 decodes to the same bytes", () => {
     0, 1, 127, 128, 255,
   ]);
   expect(bytesFromBase64("").byteLength).toBe(0);
-  expect(speechBlob(bytes).size).toBe(bytes.byteLength);
 });
 
-test("playback revokes the clip when it ends", async () => {
-  let revoked = 0;
-  let end = () => {};
+test("the page speaks over http and refuses a shell engine", async () => {
+  let posts = 0;
 
-  const pending = playOpenClip({
-    play() {
-      return Promise.resolve();
-    },
-    ended(listener) {
-      end = listener;
-    },
-    failed() {},
-    revoke() {
-      revoked += 1;
-    },
-  });
+  const post = async () => {
+    posts += 1;
 
-  expect(revoked).toBe(0);
-  end();
-  await pending;
-  expect(revoked).toBe(1);
+    return new Uint8Array([4]);
+  };
+
+  const env = {
+    CAPRICE_TTS_URL: "http://voice.example/speech",
+    CAPRICE_TTS_MODEL: "voice-d",
+  };
+
+  const woof = pageSpeaker(env, " woof ", post, async () => {});
+
+  await expect(woof.speak("hey")).rejects.toThrow(
+    "speech engine runs in the shell: woof",
+  );
+  expect(posts).toBe(0);
+  expect(pageCanSpeak("")).toBe(true);
+  expect(pageCanSpeak("   ")).toBe(true);
+  expect(pageCanSpeak("http")).toBe(true);
+  expect(pageCanSpeak(" http ")).toBe(true);
+  expect(pageCanSpeak("woof")).toBe(false);
+  expect(pageCanSpeak("HTTP")).toBe(false);
+  expect(pageCanSpeak("https")).toBe(false);
+
+  const http = pageSpeaker(env, " http ", post, async () => {});
+
+  await http.speak("hey");
+  expect(posts).toBe(1);
 });
 
-test("playback failure revokes once and rejects", async () => {
-  let revoked = 0;
-  let fail = () => {};
+test("speech credit is empty outside the shell and kept from the command", async () => {
+  let reads = 0;
 
-  const pending = playOpenClip({
-    play() {
-      fail();
+  expect(
+    await readSpeechCredit(false, async () => {
+      reads += 1;
 
-      return Promise.reject(new Error("autoplay"));
-    },
-    ended() {},
-    failed(listener) {
-      fail = listener;
-    },
-    revoke() {
-      revoked += 1;
-    },
-  });
-
-  await expect(pending).rejects.toThrow("could not play speech");
-  expect(revoked).toBe(1);
+      return "Voice by Underdog Woof";
+    }),
+  ).toBe("");
+  expect(reads).toBe(0);
+  expect(
+    await readSpeechCredit(true, async () => "Voice by Underdog Woof"),
+  ).toBe("Voice by Underdog Woof");
+  expect(await readSpeechCredit(true, async () => "")).toBe("");
+  await expect(
+    readSpeechCredit(true, async () => {
+      throw new Error("unknown reply engine: bark");
+    }),
+  ).resolves.toBe("");
 });
 
 const missingModel: TtsEnv = {

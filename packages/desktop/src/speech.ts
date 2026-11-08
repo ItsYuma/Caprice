@@ -11,8 +11,6 @@ export const modelUnavailable = "speech model is unavailable in this window";
 
 export const speechUnconfigured = "speech is not configured";
 
-export const playbackFailed = "could not play speech";
-
 export type SpeechCommands = {
   listenStart: () => Promise<void>;
   listenStop: () => Promise<string>;
@@ -44,12 +42,25 @@ type SpokenBody = {
   voice?: string;
 };
 
-export type OpenClip = {
-  play: () => Promise<void>;
-  ended: (listener: () => void) => void;
-  failed: (listener: () => void) => void;
-  revoke: () => void;
-};
+export function pageCanSpeak(engine: string): boolean {
+  const name = engine.trim();
+
+  return name.length === 0 || name === "http";
+}
+
+export function readSpeechCredit(
+  inShell: boolean,
+  read: () => Promise<string>,
+): Promise<string> {
+  if (!inShell) {
+    return Promise.resolve("");
+  }
+
+  return read().then(
+    (text) => text,
+    () => "",
+  );
+}
 
 export function speechHint(inShell: boolean): string {
   if (inShell) {
@@ -91,89 +102,23 @@ export function pageListener(): PushListener {
 export function shellSpeaker(
   commands: SpeechCommands,
   play: (bytes: Uint8Array) => Promise<void>,
+  ready: (ms: number) => void = voiceUnnoted,
 ): Speaker {
-  return audioSpeaker((text) => shellBytes(commands, text), play);
+  return audioSpeaker((text) => shellBytes(commands, text), play, ready);
 }
 
 export function pageSpeaker(
   env: TtsEnv,
+  engine: string,
   post: (exchange: TtsExchange) => Promise<Uint8Array>,
   play: (bytes: Uint8Array) => Promise<void>,
+  ready: (ms: number) => void = voiceUnnoted,
 ): Speaker {
-  return audioSpeaker((text) => pageBytes(env, post, text), play);
-}
-
-export function playSpeech(bytes: Uint8Array): Promise<void> {
-  if (bytes.byteLength === 0) {
-    return Promise.resolve();
-  }
-
-  return playOpenClip(browserClip(bytes));
-}
-
-export function playOpenClip(clip: OpenClip): Promise<void> {
-  return new Promise((resolve, reject) => {
-    let settled = false;
-
-    const finish = (settle: () => void) => {
-      if (settled) {
-        return;
-      }
-
-      settled = true;
-      clip.revoke();
-      settle();
-    };
-
-    clip.ended(() => {
-      finish(resolve);
-    });
-
-    clip.failed(() => {
-      finish(() => {
-        reject(new Error(playbackFailed));
-      });
-    });
-
-    try {
-      void clip.play().catch(() => {
-        finish(() => {
-          reject(new Error(playbackFailed));
-        });
-      });
-    } catch {
-      finish(() => {
-        reject(new Error(playbackFailed));
-      });
-    }
-  });
-}
-
-export function browserClip(bytes: Uint8Array): OpenClip {
-  const url = URL.createObjectURL(speechBlob(bytes));
-  const audio = new Audio(url);
-
-  return {
-    play() {
-      return audio.play();
-    },
-    ended(listener) {
-      audio.addEventListener("ended", listener);
-    },
-    failed(listener) {
-      audio.addEventListener("error", listener);
-    },
-    revoke() {
-      URL.revokeObjectURL(url);
-    },
-  };
-}
-
-export function speechBlob(bytes: Uint8Array): Blob {
-  const copy = new ArrayBuffer(bytes.byteLength);
-  new Uint8Array(copy).set(bytes);
-
-  return new Blob([copy]);
+  return audioSpeaker(
+    (text) => pageBytes(env, engine, post, text),
+    play,
+    ready,
+  );
 }
 
 export function bytesFromBase64(encoded: string): Uint8Array {
@@ -261,19 +206,27 @@ function shellCapture(commands: SpeechCommands): Capture {
   };
 }
 
+const voiceUnnoted = (_ms: number) => {};
+
 function audioSpeaker(
   load: (text: string) => Promise<Uint8Array>,
   play: (bytes: Uint8Array) => Promise<void>,
+  ready: (ms: number) => void,
 ): Speaker {
   return {
     async speak(text) {
       const trimmed = text.trim();
 
       if (trimmed.length === 0) {
+        ready(0);
+
         return;
       }
 
+      const started = performance.now();
       const bytes = await load(trimmed);
+
+      ready(performance.now() - started);
 
       if (bytes.byteLength === 0) {
         return;
@@ -299,9 +252,14 @@ async function shellBytes(
 
 async function pageBytes(
   env: TtsEnv,
+  engine: string,
   post: (exchange: TtsExchange) => Promise<Uint8Array>,
   text: string,
 ): Promise<Uint8Array> {
+  if (!pageCanSpeak(engine)) {
+    throw new Error(`speech engine runs in the shell: ${engine.trim()}`);
+  }
+
   const exchange = ttsExchange(env, text);
 
   if (exchange === undefined) {

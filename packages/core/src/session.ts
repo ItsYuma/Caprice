@@ -32,18 +32,28 @@ export type Session = {
   say: (hostText: string) => Promise<Result<Line>>;
 };
 
+export const threadLimit = 20;
+
 export function openSession(
   persona: string,
   model: Model,
   tools: readonly Tool[],
+  remembered: readonly Line[] = [],
 ): Session {
   const lines: Line[] = [];
+
+  for (const line of remembered) {
+    lines.push({ who: line.who, text: line.text });
+  }
+
+  trimThread(lines);
 
   return {
     lines: () => lines.slice(),
     tools: () => tools.slice(),
     async say(hostText: string) {
       lines.push({ who: "host", text: hostText });
+      trimThread(lines);
 
       const reply = await model.reply({
         persona,
@@ -57,10 +67,19 @@ export function openSession(
 
       const capriLine: Line = { who: "capri", text: reply.value.text };
       lines.push(capriLine);
+      trimThread(lines);
 
       return ok(capriLine);
     },
   };
+}
+
+function trimThread(lines: Line[]): void {
+  const extra = lines.length - threadLimit;
+
+  if (extra > 0) {
+    lines.splice(0, extra);
+  }
 }
 
 export function stubModel(): Model {

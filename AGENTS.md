@@ -6,21 +6,27 @@ Annoying desktop companion. She talks, and later she uses the computer when the 
 
 From the repo root, with Bun 1.4.4:
 
-| Command                       | What it does                                        |
-| ----------------------------- | --------------------------------------------------- |
-| `bun install`                 | Install the workspace                               |
-| `bun test`                    | Tests under `packages/`                             |
-| `bun run lint`                | Oxlint, including anti-slop                         |
-| `bun fmt`                     | Format                                              |
-| `bun run format:check`        | Format check                                        |
-| `bun run typecheck`           | `bun check` on each package                         |
-| `bun run dev`                 | Tauri window                                        |
-| `cargo check`                 | Rust shell, from `packages/desktop/src-tauri`       |
-| `cargo test`                  | Rust shell tests, from `packages/desktop/src-tauri` |
-| `cargo fmt`                   | Format the shell                                    |
-| `cargo clippy -- -D warnings` | Rust lints for the shell. Warnings fail             |
+| Command                       | What it does                                           |
+| ----------------------------- | ------------------------------------------------------ |
+| `bun install`                 | Install the workspace                                  |
+| `bun test`                    | Tests under `packages/` and `scripts/`                 |
+| `bun run lint`                | Oxlint, including anti-slop                            |
+| `bun fmt`                     | Format                                                 |
+| `bun run format:check`        | Format check                                           |
+| `bun run typecheck`           | `bun check` on each package                            |
+| `scripts/install.sh`          | Linux and macOS setup: tools, Woof, Bark, config       |
+| `scripts/install.ps1`         | Windows setup. Same flags as `scripts/install.sh`      |
+| `bun run dev`                 | Tauri window. Fills unset vars from the install config |
+| `cargo check`                 | Rust shell, from `packages/desktop/src-tauri`          |
+| `cargo test`                  | Rust shell tests, from `packages/desktop/src-tauri`    |
+| `cargo fmt`                   | Format the shell                                       |
+| `cargo clippy -- -D warnings` | Rust lints for the shell. Warnings fail                |
 
-The shell needs Rust 1.99.1. Tauri 2.12 does not build on 1.83. `packages/desktop/src-tauri/rust-toolchain.toml` selects it.
+The shell needs Rust 1.99.1. Tauri 2.12 does not build on 1.83. `rust-toolchain.toml` at the repo root selects it. The Tauri CLI asks `rustc` from `packages/desktop`, and rustup only walks parent directories.
+
+Rocky Linux 9, RHEL 9, and AlmaLinux 9 ship WebKitGTK 4.0. The window links WebKitGTK 4.1. `scripts/install.sh` installs Podman and distrobox, creates a Fedora container named `caprice`, and finishes setup inside it. `config.json` records that container. `bun run dev` enters it.
+
+On Windows, `scripts/install.ps1` installs the Visual C++ build tools. Rust links with `link.exe` from that package.
 
 Stable Bun 1.4.4 has `bun test`, `bun fmt`, and `bun check`. `bun lint` in that release is only a package script, so lint is Oxlint until a stable Bun ships the linter. When that lands, point `lint` at `bun lint` and keep the same rules.
 
@@ -31,6 +37,7 @@ Stable Bun 1.4.4 has `bun test`, `bun fmt`, and `bun check`. `bun lint` in that 
 | `packages/core`              | `Session`, `Model`, `Tool`, `Result`, persona slicing |
 | `packages/voice`             | `Listener` and `Speaker`                              |
 | `packages/desktop`           | React window and `sayAndSpeak`                        |
+| `scripts/`                   | `install.sh`, `install.ps1`, and the dev launcher     |
 | `skills/`                    | Text the local model reads                            |
 | `docs/architecture.md`       | The diagram and the dependency rule                   |
 | `docs/technical-directions/` | A decision later work would guess wrong without       |
@@ -98,19 +105,22 @@ Inside the Tauri window, Rust reads those variables when the page asks and posts
 
 ## Voice
 
-Hold Alt+Space while the Caprice window is focused, or hold the button. Release to send. The chord is `talkChord` in `packages/desktop/src/talk.ts`. It is a window shortcut, so it does not register a global hotkey. A window manager that already owns Alt+Space can swallow the chord before the page sees it. The button still works. WebKitGTK does not matter for speech.
+Hold Alt+Space or Ctrl+Space while the Caprice window is focused, or hold the box. Release to send. A tap does not send. Listening starts after `talkHoldDelay` in `packages/desktop/src/talk.ts`, so a click that only focuses the window does not run a turn. The chords are `talkChords` in that file. They are window shortcuts, so they do not register a global hotkey. A window manager that already owns Alt+Space can swallow that chord before the page sees it. Ctrl+Space still works. The box still works. WebKitGTK does not matter for speech.
 
-`listenAndSay` waits for `listen`, then runs `say`, then the speaker. The listener is `captureListener`. Inside the Tauri window, Rust records the default microphone and sends the clip to a speech worker. The worker is this binary started with `--speech-worker`. It loads the model once and stays until the window exits. The page calls `speech_listen_start`, `speech_listen_stop`, and `speech_speak`. `scriptedListener` and `recordingSpeaker` stay for tests.
+`listenAndSay` waits for `listen`, then runs `say`, then the speaker. The box keeps the last turn's `hear`, `reply`, and `voice` times so a slow hello shows which step waited. `hear` starts at release, and `voice` ends when the audio bytes are ready, before playback. The listener is `captureListener`. Inside the Tauri window, Rust records the default microphone and sends the clip to a speech worker. The worker is this binary started with `--speech-worker`. It loads the model once and stays until the window exits. The page calls `speech_listen_start`, `speech_listen_stop`, and `speech_speak`. `scriptedListener` and `recordingSpeaker` stay for tests.
 
 | Variable              | What it is                                                                                                                                                           |
 | --------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `CAPRICE_STT_ENGINE`  | Speech engine name. Empty or `onnx` loads the int8 ONNX directory. `bark` loads a Parakeet safetensors checkpoint. Any other name is an error                        |
 | `CAPRICE_STT_MODEL`   | Directory for that engine. ONNX needs the encoder, the decoder, `nemo128.onnx`, and `vocab.txt`. Bark needs `config.json`, `tokenizer.json`, and `model.safetensors` |
+| `CAPRICE_TTS_ENGINE`  | Empty or `http` is the POST. `woof` is the resident child                                                                                                            |
+| `CAPRICE_TTS_WOOF`    | Underdog Woof directory. The installer stores the Hugging Face checkout here                                                                                         |
+| `CAPRICE_PYTHON`      | Interpreter for the Woof child. Empty uses `python3`                                                                                                                 |
 | `CAPRICE_TTS_URL`     | Full URL for a JSON body `{ model, input }`                                                                                                                          |
 | `CAPRICE_TTS_MODEL`   | Model name sent in that body                                                                                                                                         |
-| `CAPRICE_TTS_VOICE`   | Optional `voice` field. Omit the field when this is empty                                                                                                            |
+| `CAPRICE_TTS_VOICE`   | Optional. HTTP adds `voice` when this is non-empty. Woof uses empty or `juno` for Juno and `mira` for Mira                                                           |
 | `CAPRICE_TTS_API_KEY` | Optional bearer token. Omit it when the endpoint does not need one                                                                                                   |
 
 The ONNX variant loads the int8 weights through `transcribe-rs`. The Bark variant loads the safetensors checkpoint through telmo, in bf16, and prepends a quarter second of silence. Another speech model is a new engine variant in that worker, not a new language. No microphone name, host, or model id is hardcoded. Caprice does not start Handy and does not use the Web Speech API.
 
-Spoken replies need `CAPRICE_TTS_URL` and `CAPRICE_TTS_MODEL`. Rust posts inside the window. The page plays the bytes. There is no resident TTS model. Outside Tauri the page does not invoke. Listening fails because the speech model is unavailable. Speaking uses `postSpeech` only when both TTS variables are set, and otherwise rejects with `speech is not configured`.
+`CAPRICE_TTS_ENGINE` selects the spoken reply. Empty or `http` posts to `CAPRICE_TTS_URL` with `CAPRICE_TTS_MODEL`. `woof` is a resident child. `CAPRICE_PYTHON` is that interpreter when it is set, and empty uses `python3`. `CAPRICE_TTS_WOOF` is the Underdog Woof directory. Rust speaks inside the window and returns the bytes. The page plays them. `speech_credit` is `Voice by Underdog Woof` for `woof`, and empty for HTTP. `scripts/install.sh` and `scripts/install.ps1` download Woof and Bark into the user data directory and write `config.json`. `bun run dev` fills any unset `CAPRICE_*` variable from that file. Outside Tauri the page does not invoke. Listening fails because the speech model is unavailable. Speaking uses `postSpeech` only when both `CAPRICE_TTS_URL` and `CAPRICE_TTS_MODEL` are set, and otherwise rejects with `speech is not configured`.

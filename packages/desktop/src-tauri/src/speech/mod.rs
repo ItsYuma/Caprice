@@ -6,9 +6,13 @@ mod parakeet;
 mod pcm;
 mod phase;
 mod protocol;
+mod reply;
 pub(crate) mod speak;
 mod supervisor;
+mod woof;
 pub(crate) mod worker;
+
+pub(crate) use woof::ReplyState;
 
 use std::sync::{Arc, Mutex, MutexGuard};
 

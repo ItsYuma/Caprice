@@ -2,7 +2,8 @@ import { openSession, stubModel } from "@caprice/core";
 import { recordingSpeaker, scriptedListener } from "@caprice/voice";
 import { expect, test } from "bun:test";
 
-import { listenAndSay, sayAndSpeak } from "./host.ts";
+import { listenAndSay, sayAndSpeak, type TurnPace } from "./host.ts";
+import type { PaceMark, PaceNote } from "./pace.ts";
 
 test("sayAndSpeak speaks the capri line", async () => {
   const session = openSession("p", stubModel(), []);
@@ -37,6 +38,48 @@ test("listenAndSay feeds the heard line to say and speaks the reply", async () =
     { who: "capri", text: "No model yet. You said: yo" },
   ]);
   expect(recording.spoken()).toEqual(["No model yet. You said: yo"]);
+});
+
+test("reply and voice are timed apart from playback", async () => {
+  const session = openSession("p", stubModel(), []);
+  const marks: PaceMark[] = [];
+  let time = 10;
+
+  const note: PaceNote = {
+    begin() {},
+    end(name, ms) {
+      marks.push({ name, ms });
+    },
+  };
+
+  const pace: TurnPace = {
+    note,
+    now: () => time,
+    watchVoice(ready) {
+      ready(40);
+
+      return () => {};
+    },
+  };
+
+  time = 25;
+
+  const line = await sayAndSpeak(
+    session,
+    {
+      async speak() {
+        time = 90;
+      },
+    },
+    "yo",
+    pace,
+  );
+
+  expect(line.ok).toBe(true);
+  expect(marks).toEqual([
+    { name: "reply", ms: 0 },
+    { name: "voice", ms: 40 },
+  ]);
 });
 
 test("listenAndSay drops a blank transcript before say", async () => {

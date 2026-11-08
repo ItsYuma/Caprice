@@ -1,16 +1,36 @@
 use std::io::{Read, Write};
 
-use super::super::test_support::{env_lock, EnvGuard};
-use super::speech_speak;
+use super::super::reply::perform;
+use super::super::test_support::{env_lock, woof_drivers, EnvGuard};
+use super::super::ReplyState;
+use super::{encode_audio, speech_credit};
+
+fn spoken(text: &str) -> Result<String, String> {
+    let state = ReplyState::new();
+    let bytes = tauri::async_runtime::block_on(perform(&state, text.to_string()))?;
+    Ok(encode_audio(&bytes))
+}
 
 #[test]
 fn blank_text_does_not_speak() {
     let _lock = env_lock();
     let _url = EnvGuard::set("CAPRICE_TTS_URL", None);
-    let blank = tauri::async_runtime::block_on(speech_speak(" \n\t".into())).unwrap();
-    let empty = tauri::async_runtime::block_on(speech_speak(String::new())).unwrap();
+    let blank = spoken(" \n\t").unwrap();
+    let empty = spoken("").unwrap();
     assert_eq!(blank, "");
     assert_eq!(empty, "");
+}
+
+#[test]
+fn blank_text_with_a_bad_engine_does_not_spawn() {
+    let _lock = env_lock();
+    let _engine = EnvGuard::set("CAPRICE_TTS_ENGINE", Some("nope"));
+    let _woof = EnvGuard::set("CAPRICE_TTS_WOOF", Some("/caprice-woof-should-not-spawn"));
+    let before = woof_drivers();
+    let state = ReplyState::new();
+    let bytes = tauri::async_runtime::block_on(perform(&state, " \n\t".into())).unwrap();
+    assert!(bytes.is_empty());
+    assert_eq!(woof_drivers(), before);
 }
 
 #[test]
@@ -44,21 +64,25 @@ fn speech_speak_returns_base64_audio() {
         "CAPRICE_TTS_URL",
         Some(&format!("http://127.0.0.1:{port}/custom/speech")),
     );
+    let _woof = EnvGuard::set("CAPRICE_TTS_WOOF", Some("/caprice-woof-not-used"));
+    let _engine = EnvGuard::set("CAPRICE_TTS_ENGINE", None);
     let _model = EnvGuard::set("CAPRICE_TTS_MODEL", None);
-    let missing_model =
-        tauri::async_runtime::block_on(speech_speak("say \"hi\"".into())).unwrap_err();
+    let missing_model = spoken("say \"hi\"").unwrap_err();
     assert_eq!(missing_model, "CAPRICE_TTS_MODEL is not set");
 
     let _model = EnvGuard::set("CAPRICE_TTS_MODEL", Some("shell-voice"));
     let _voice = EnvGuard::set("CAPRICE_TTS_VOICE", Some("capri"));
     let _key = EnvGuard::set("CAPRICE_TTS_API_KEY", Some("secret"));
-    let audio = tauri::async_runtime::block_on(speech_speak("say \"hi\"".into())).expect("speak");
+    let _engine = EnvGuard::set("CAPRICE_TTS_ENGINE", Some("http"));
+    let audio = spoken("say \"hi\"").expect("speak");
 
     let _voice = EnvGuard::set("CAPRICE_TTS_VOICE", None);
     let _key = EnvGuard::set("CAPRICE_TTS_API_KEY", None);
-    let plain = tauri::async_runtime::block_on(speech_speak("say \"hi\"".into())).expect("plain");
+    let _engine = EnvGuard::set("CAPRICE_TTS_ENGINE", Some(""));
+    let plain = spoken("say \"hi\"").expect("plain");
 
-    let failed = tauri::async_runtime::block_on(speech_speak("say \"hi\"".into())).unwrap_err();
+    let _engine = EnvGuard::set("CAPRICE_TTS_ENGINE", Some(" http "));
+    let failed = spoken("say \"hi\"").unwrap_err();
     let requests = server.join().expect("server");
 
     assert_eq!(audio, "AAH/QQ==");
@@ -66,6 +90,40 @@ fn speech_speak_returns_base64_audio() {
     assert_eq!(failed, "speech request failed: 503");
     assert_request(&requests[0], true, true);
     assert_request(&requests[1], false, false);
+}
+
+#[test]
+fn http_names_a_missing_url() {
+    let _lock = env_lock();
+    let _engine = EnvGuard::set("CAPRICE_TTS_ENGINE", Some("http"));
+    let _url = EnvGuard::set("CAPRICE_TTS_URL", None);
+    let _model = EnvGuard::set("CAPRICE_TTS_MODEL", Some("shell-voice"));
+    let _woof = EnvGuard::set("CAPRICE_TTS_WOOF", None);
+    assert_eq!(spoken("hi").unwrap_err(), "speech is not configured");
+}
+
+#[test]
+fn a_rejected_reply_engine_does_not_spawn() {
+    let _lock = env_lock();
+    let _engine = EnvGuard::set("CAPRICE_TTS_ENGINE", Some("bark"));
+    let _woof = EnvGuard::set("CAPRICE_TTS_WOOF", Some("/caprice-woof-should-not-spawn"));
+    let before = woof_drivers();
+    let err = tauri::async_runtime::block_on(perform(&ReplyState::new(), "hi".into())).unwrap_err();
+    assert_eq!(err, "unknown reply engine: bark");
+    assert_eq!(woof_drivers(), before);
+}
+
+#[test]
+fn speech_credit_follows_the_reply_engine() {
+    let _lock = env_lock();
+    let _engine = EnvGuard::set("CAPRICE_TTS_ENGINE", None);
+    assert_eq!(speech_credit().unwrap(), "");
+    let _engine = EnvGuard::set("CAPRICE_TTS_ENGINE", Some("http"));
+    assert_eq!(speech_credit().unwrap(), "");
+    let _engine = EnvGuard::set("CAPRICE_TTS_ENGINE", Some(" woof "));
+    assert_eq!(speech_credit().unwrap(), "Voice by Underdog Woof");
+    let _engine = EnvGuard::set("CAPRICE_TTS_ENGINE", Some("bark"));
+    assert_eq!(speech_credit().unwrap_err(), "unknown reply engine: bark");
 }
 
 fn assert_request(request: &str, bearer: bool, voice: bool) {
