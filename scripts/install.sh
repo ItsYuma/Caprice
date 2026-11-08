@@ -22,6 +22,36 @@ run_root() {
   fi
 }
 
+rpm_available() {
+  dnf -q repoquery --available "$1" 2>/dev/null | grep -q .
+}
+
+rpm_install_available() {
+  local pkg
+  for pkg in "$@"; do
+    if rpm_available "$pkg"; then
+      run_root dnf install -y "$pkg"
+    fi
+  done
+}
+
+webkit_rpm() {
+  if dnf -q repoquery --whatprovides 'pkgconfig(webkit2gtk-4.1)' 2>/dev/null | grep -q .; then
+    printf '%s\n' 'pkgconfig(webkit2gtk-4.1)'
+    return 0
+  fi
+
+  local candidate
+  for candidate in webkit2gtk4.1-devel webkitgtk4.1-devel webkit2gtk4.1; do
+    if rpm_available "$candidate"; then
+      printf '%s\n' "$candidate"
+      return 0
+    fi
+  done
+
+  return 1
+}
+
 install_linux_packages() {
   if command -v pkg-config >/dev/null 2>&1 && pkg-config --exists gdk-3.0 webkit2gtk-4.1; then
     if command -v python3 >/dev/null 2>&1 && python3 -c "import ensurepip" >/dev/null 2>&1; then
@@ -45,10 +75,21 @@ install_linux_packages() {
         python3 python3-venv python3-pip ca-certificates
       ;;
     *fedora* | *rhel* | *centos*)
+      run_root dnf makecache
+      local webkit
+      if ! webkit="$(webkit_rpm)"; then
+        echo "No enabled dnf repository provides webkit2gtk-4.1."
+        echo "Fedora ships it as webkit2gtk4.1-devel. RHEL 9, Rocky 9, and AlmaLinux 9 ship WebKitGTK 4.0 only, and the window does not build against that."
+        exit 1
+      fi
       run_root dnf install -y \
-        gcc gcc-c++ make curl wget file pkgconf-pkg-config openssl-devel \
-        gtk3-devel webkit2gtk4.1-devel libappindicator-gtk3-devel librsvg2-devel \
-        python3 python3-pip ca-certificates
+        gcc gcc-c++ make curl wget file openssl-devel gtk3-devel \
+        python3 python3-pip ca-certificates \
+        "$webkit"
+      rpm_install_available \
+        pkgconf-pkg-config pkgconf \
+        librsvg2-devel libxdo-devel \
+        libayatana-appindicator-gtk3-devel libappindicator-gtk3-devel
       ;;
     *arch*)
       run_root pacman -S --needed --noconfirm \
