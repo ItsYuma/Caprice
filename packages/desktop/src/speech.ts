@@ -102,8 +102,9 @@ export function pageListener(): PushListener {
 export function shellSpeaker(
   commands: SpeechCommands,
   play: (bytes: Uint8Array) => Promise<void>,
+  ready: (ms: number) => void = voiceUnnoted,
 ): Speaker {
-  return audioSpeaker((text) => shellBytes(commands, text), play);
+  return audioSpeaker((text) => shellBytes(commands, text), play, ready);
 }
 
 export function pageSpeaker(
@@ -111,8 +112,13 @@ export function pageSpeaker(
   engine: string,
   post: (exchange: TtsExchange) => Promise<Uint8Array>,
   play: (bytes: Uint8Array) => Promise<void>,
+  ready: (ms: number) => void = voiceUnnoted,
 ): Speaker {
-  return audioSpeaker((text) => pageBytes(env, engine, post, text), play);
+  return audioSpeaker(
+    (text) => pageBytes(env, engine, post, text),
+    play,
+    ready,
+  );
 }
 
 export function bytesFromBase64(encoded: string): Uint8Array {
@@ -200,19 +206,27 @@ function shellCapture(commands: SpeechCommands): Capture {
   };
 }
 
+const voiceUnnoted = (_ms: number) => {};
+
 function audioSpeaker(
   load: (text: string) => Promise<Uint8Array>,
   play: (bytes: Uint8Array) => Promise<void>,
+  ready: (ms: number) => void,
 ): Speaker {
   return {
     async speak(text) {
       const trimmed = text.trim();
 
       if (trimmed.length === 0) {
+        ready(0);
+
         return;
       }
 
+      const started = performance.now();
       const bytes = await load(trimmed);
+
+      ready(performance.now() - started);
 
       if (bytes.byteLength === 0) {
         return;

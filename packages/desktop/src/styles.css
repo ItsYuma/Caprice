@@ -191,9 +191,15 @@ main:hover #close,
   display: block;
 }
 
-#voice-credit {
+#voice-credit,
+#pace {
   color: #8f9bb3;
   font-size: 10px;
+}
+
+.step-time {
+  margin-left: 8px;
+  color: #00f0ff;
 }
 
 #problem {

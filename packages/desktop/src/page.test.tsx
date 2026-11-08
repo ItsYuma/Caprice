@@ -19,6 +19,9 @@ test("the window is the box and hides the conversation", () => {
       talkPhase="idle"
       hint="Hold Alt+Space or Ctrl+Space. Release to send."
       credit="Voice by Underdog Woof"
+      pace=""
+      step=""
+      stepAt={0}
     />,
   );
 
@@ -49,6 +52,9 @@ test("thinking is the only line while she works", () => {
       talkPhase="busy"
       hint=""
       credit=""
+      pace=""
+      step=""
+      stepAt={0}
     />,
   );
 
@@ -60,6 +66,27 @@ test("thinking is the only line while she works", () => {
   expect(presenceMode("busy", true)).toBe("speaking");
   expect(presenceMode("listening", false)).toBe("listening");
   expect(presenceMode("idle", false)).toBe("idle");
+});
+
+test("the box shows where the turn spent time", () => {
+  const html = renderToStaticMarkup(
+    <CapricePage
+      problem=""
+      hold={undefined}
+      talkPhase="busy"
+      hint=""
+      credit=""
+      pace="hear 1.4s · reply 400ms"
+      step="voice"
+      stepAt={0}
+    />,
+  );
+
+  expect(html).toContain("[VOICE...]");
+  expect(html).toContain('id="thinking">voice<');
+  expect(html).toContain('id="pace"');
+  expect(html).toContain("hear 1.4s · reply 400ms");
+  expect(html).not.toContain("hello");
 });
 
 test("the sine follows the moment being spoken", () => {

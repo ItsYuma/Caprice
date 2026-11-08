@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 
+import { formatPace, type PaceName } from "./pace.ts";
 import { amplitudeAt, subscribePlayback, type Frame } from "./playback.ts";
 import {
   bindTalkButton,
@@ -16,6 +17,9 @@ export type PresenceProps = {
   hint: string;
   problem: string;
   credit: string;
+  pace: string;
+  step: PaceName | "";
+  stepAt: number;
 };
 
 export function Presence(props: PresenceProps) {
@@ -75,13 +79,26 @@ export function Presence(props: PresenceProps) {
               <p className="tag">
                 <span>&gt; capri:</span>
                 {mode === "thinking" ? (
-                  <span className="processing">[PROCESSING...]</span>
+                  <span className="processing">
+                    {props.step.length > 0
+                      ? `[${props.step.toUpperCase()}...]`
+                      : "[PROCESSING...]"}
+                  </span>
                 ) : null}
                 {mode === "listening" ? (
                   <span className="listen">[LISTENING...]</span>
                 ) : null}
               </p>
-              {mode === "thinking" ? <Thinking /> : null}
+              {mode === "thinking" && props.step.length > 0 ? (
+                <p className="line">
+                  <span id="thinking">{props.step}</span>
+                  <StepTime started={props.stepAt} />
+                </p>
+              ) : null}
+              {mode === "thinking" && props.step.length === 0 ? (
+                <Thinking />
+              ) : null}
+              {props.pace.length > 0 ? <p id="pace">{props.pace}</p> : null}
               {mode === "speaking" ? (
                 <canvas ref={canvas} className="wave" aria-hidden="true" />
               ) : null}
@@ -97,6 +114,24 @@ export function Presence(props: PresenceProps) {
       </div>
     </button>
   );
+}
+
+function StepTime(props: { started: number }) {
+  const [now, setNow] = useState(props.started);
+
+  useEffect(() => {
+    setNow(performance.now());
+
+    const timer = setInterval(() => {
+      setNow(performance.now());
+    }, 100);
+
+    return () => {
+      clearInterval(timer);
+    };
+  }, [props.started]);
+
+  return <span className="step-time">{formatPace(now - props.started)}</span>;
 }
 
 function Thinking() {

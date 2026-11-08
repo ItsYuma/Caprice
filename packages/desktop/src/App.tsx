@@ -24,6 +24,9 @@ export function App() {
       talkPhase={caprice.talkPhase}
       hint={caprice.hint}
       credit={credit}
+      pace={caprice.pace}
+      step={caprice.step}
+      stepAt={caprice.stepAt}
     />
   );
 }
