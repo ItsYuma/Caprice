@@ -26,11 +26,12 @@ test("the window shows the figure and hides the conversation", () => {
   expect(html).toContain('aria-label="Hold to talk"');
   expect(html).toContain('aria-label="Close"');
   expect(html).toContain("data-tauri-drag-region");
+  expect(html).toContain("hud-chamfer-box");
   expect(html).toContain('id="problem"');
   expect(html).toContain("the model request failed");
   expect(html).toContain("Voice by Underdog Woof");
-  expect(html).toContain('id="thinking"');
-  expect(html).not.toContain(">thinking<");
+  expect(html).not.toContain('id="thinking"');
+  expect(html).not.toContain("&gt; capri:");
   expect(html).not.toContain("Show text");
   expect(html).not.toContain("Say something");
   expect(html).not.toContain("data-who");
@@ -47,6 +48,9 @@ test("thinking is the only line while she works", () => {
     />,
   );
 
+  expect(html).toContain("hud-chamfer-box");
+  expect(html).toContain("&gt; capri:");
+  expect(html).toContain("[PROCESSING...]");
   expect(html).toContain(">thinking<");
   expect(presenceMode("busy", false)).toBe("thinking");
   expect(presenceMode("busy", true)).toBe("speaking");
@@ -67,14 +71,14 @@ test("the sine follows the moment being spoken", () => {
   const speaking = marks();
 
   drawWave(speaking.pen, 80, 24, "speaking", 0.8, 0.4);
-  expect(speaking.drawn.strokes).toEqual(["#f2a2c8"]);
+  expect(speaking.drawn.strokes).toEqual(["#00f0ff"]);
   expect(speaking.drawn.moves).toBe(1);
   expect(speaking.drawn.lines).toBeGreaterThan(8);
 
   const idle = marks();
 
   drawWave(idle.pen, 80, 24, "idle", 0.07, 0);
-  expect(idle.drawn.strokes).toEqual(["#a88898"]);
+  expect(idle.drawn.strokes).toEqual(["#5c6b7a"]);
 });
 
 function heardFrame(heard: number): Frame {

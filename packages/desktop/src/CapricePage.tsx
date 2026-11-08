@@ -24,8 +24,12 @@ export function CapricePage(props: CapricePageProps) {
         >
           ×
         </button>
-        <Presence phase={props.talkPhase} hold={props.hold} hint={props.hint} />
-        {props.problem.length > 0 ? <p id="problem">{props.problem}</p> : null}
+        <Presence
+          phase={props.talkPhase}
+          hold={props.hold}
+          hint={props.hint}
+          problem={props.problem}
+        />
         {props.credit.length > 0 ? (
           <p id="voice-credit">{props.credit}</p>
         ) : null}

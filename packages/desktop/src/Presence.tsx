@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 
 import { amplitudeAt, subscribePlayback, type Frame } from "./playback.ts";
 import {
@@ -14,6 +14,7 @@ export type PresenceProps = {
   phase: TalkPhase;
   hold: TalkHold | undefined;
   hint: string;
+  problem: string;
 };
 
 export function Presence(props: PresenceProps) {
@@ -56,8 +57,17 @@ export function Presence(props: PresenceProps) {
     };
   }, [mode]);
 
+  const open = mode !== "idle" || props.problem.length > 0;
+
   return (
     <div className="presence" data-mode={mode}>
+      {open ? (
+        <Hud mode={mode} problem={props.problem}>
+          {mode === "speaking" ? (
+            <canvas ref={canvas} className="wave" aria-hidden="true" />
+          ) : null}
+        </Hud>
+      ) : null}
       <button
         ref={button}
         id="talk"
@@ -68,54 +78,103 @@ export function Presence(props: PresenceProps) {
         title={props.hint}
       >
         <div ref={figure} className="figure">
-          <svg
-            viewBox="0 0 200 236"
-            width="200"
-            height="236"
-            aria-hidden="true"
-          >
-            <defs>
-              <mask
-                id="presence-housing"
-                maskUnits="userSpaceOnUse"
-                x="0"
-                y="0"
-                width="200"
-                height="236"
-              >
-                <rect width="200" height="236" fill="black" />
-                <rect
-                  x="34"
-                  y="20"
-                  width="132"
-                  height="196"
-                  rx="46"
-                  fill="white"
-                />
-              </mask>
-            </defs>
-            <g mask="url(#presence-housing)">
-              <rect
-                className="housing"
-                x="34"
-                y="20"
-                width="132"
-                height="196"
-                rx="46"
-              />
-              <g className="slit">
-                <rect x="58" y="92" width="84" height="10" rx="5" />
-              </g>
-            </g>
-            <circle className="pip" cx="130" cy="174" r="7" />
-          </svg>
+          <Figure />
         </div>
       </button>
-      <p id="thinking" data-on={mode === "thinking" ? "true" : "false"}>
-        {mode === "thinking" ? "thinking" : ""}
-      </p>
-      <canvas ref={canvas} className="wave" aria-hidden="true" />
     </div>
+  );
+}
+
+function Figure() {
+  return (
+    <svg viewBox="0 0 200 340" width="200" height="340" aria-hidden="true">
+      <path
+        className="hair"
+        d="M62 118c0-62 28-92 70-92 36 0 58 28 54 64-6 8-20 10-32 6 8 14 6 32-6 42-22-6-40-6-54-2-16-6-32-10-32-18z"
+      />
+      <path
+        className="streak"
+        d="M146 40c18 10 24 28 14 44-12-8-18-22-14-44z"
+      />
+      <ellipse className="face" cx="100" cy="112" rx="30" ry="34" />
+      <circle className="eye" cx="90" cy="110" r="4.5" />
+      <circle className="eye" cx="114" cy="110" r="4.5" />
+      <path className="body" d="M72 152h56l12 86H60z" />
+      <path className="panel" d="M86 166h28l3 40H83z" />
+      <path className="mark" d="M130 172h8l5 26h-8z" />
+      <path className="leg" d="M74 238h20l-2 78H68z" />
+      <path className="leg" d="M106 238h20l6 78h-22z" />
+    </svg>
+  );
+}
+
+function Hud(props: {
+  mode: PresenceMode;
+  problem: string;
+  children: ReactNode;
+}) {
+  const named = props.mode === "thinking" || props.mode === "speaking";
+
+  return (
+    <div className="hud">
+      <div className="hud-chamfer-box">
+        <div className="hud-chamfer-box-inner">
+          <div className="hud-copy">
+            {props.mode === "listening" ? (
+              <p className="listen">[LISTENING...]</p>
+            ) : null}
+            {named ? (
+              <p className="tag">
+                <span>&gt; capri:</span>
+                {props.mode === "thinking" ? (
+                  <span className="processing">[PROCESSING...]</span>
+                ) : null}
+              </p>
+            ) : null}
+            {props.mode === "thinking" ? <Thinking /> : null}
+            {props.children}
+            {props.problem.length > 0 ? (
+              <p id="problem">{props.problem}</p>
+            ) : null}
+          </div>
+        </div>
+      </div>
+      <svg className="tail" viewBox="0 0 20 12" aria-hidden="true">
+        <polygon
+          points="1,0 6,11 18,0"
+          fill="#080a12"
+          stroke="#00f0ff"
+          strokeWidth="2"
+          strokeLinejoin="round"
+        />
+      </svg>
+    </div>
+  );
+}
+
+function Thinking() {
+  const [dots, setDots] = useState(".");
+
+  useEffect(() => {
+    const frames = [".", "..", "..."];
+    let index = 0;
+
+    const timer = setInterval(() => {
+      index = (index + 1) % frames.length;
+      setDots(frames[index] ?? ".");
+    }, 350);
+
+    return () => {
+      clearInterval(timer);
+    };
+  }, []);
+
+  return (
+    <p className="line">
+      <span id="thinking">thinking</span>
+      <span className="dots">{dots}</span>
+      <span className="caret" />
+    </p>
   );
 }
 
@@ -233,19 +292,11 @@ export function drawWave(
 }
 
 function waveColor(mode: PresenceMode): string {
-  if (mode === "speaking") {
-    return "#f2a2c8";
+  if (mode === "idle") {
+    return "#5c6b7a";
   }
 
-  if (mode === "thinking") {
-    return "#e38bb8";
-  }
-
-  if (mode === "listening") {
-    return "#ffd0e4";
-  }
-
-  return "#a88898";
+  return "#00f0ff";
 }
 
 function resting(): Frame {

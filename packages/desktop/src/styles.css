@@ -1,7 +1,7 @@
 :root {
-  color: #f4efe8;
+  color: #f8fafc;
   background: transparent;
-  font-family: "IBM Plex Sans", sans-serif;
+  font-family: ui-monospace, "Cascadia Mono", Consolas, monospace;
 }
 
 html,
@@ -21,13 +21,13 @@ main {
   height: 100vh;
   overflow: hidden;
   user-select: none;
+  background: transparent;
 }
 
 .plate {
   position: absolute;
   inset: 0;
-  border-radius: 28px;
-  background: rgba(17, 12, 16, 0.88);
+  background: transparent;
 }
 
 .stack {
@@ -39,13 +39,13 @@ main {
   flex-direction: column;
   align-items: center;
   justify-content: flex-end;
-  gap: 8px;
-  padding: 12px 16px 16px;
+  gap: 6px;
+  padding: 18px 16px 12px;
   pointer-events: none;
 }
 
 .stack button,
-#problem,
+.hud,
 #voice-credit {
   pointer-events: auto;
 }
@@ -53,13 +53,13 @@ main {
 #close {
   position: absolute;
   top: 8px;
-  right: 8px;
+  right: 10px;
   width: 28px;
   height: 28px;
   padding: 0;
   border: 0;
-  border-radius: 999px;
-  color: #b9a3ae;
+  border-radius: 0;
+  color: #00f0ff;
   background: transparent;
   font-size: 18px;
   line-height: 28px;
@@ -72,35 +72,123 @@ main:hover #close,
 }
 
 .presence {
-  width: 100%;
+  width: min(100%, 360px);
   flex: 1;
   min-height: 0;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: flex-end;
+  gap: 8px;
+}
+
+.hud {
+  position: relative;
+  width: 100%;
+  filter: drop-shadow(0 0 14px rgba(0, 240, 255, 0.4));
+}
+
+.hud-chamfer-box {
+  padding: 2px;
+  background: #00f0ff;
+  clip-path: polygon(
+    18px 0,
+    100% 0,
+    100% calc(100% - 18px),
+    calc(100% - 18px) 100%,
+    0 100%,
+    0 18px
+  );
+}
+
+.hud-chamfer-box-inner {
+  background: rgba(8, 10, 18, 0.95);
+  clip-path: polygon(
+    16px 0,
+    100% 0,
+    100% calc(100% - 16px),
+    calc(100% - 16px) 100%,
+    0 100%,
+    0 16px
+  );
+}
+
+.hud-copy {
+  display: flex;
+  flex-direction: column;
   gap: 4px;
+  margin: 8px 12px 10px 14px;
+  padding-left: 12px;
+  border-left: 3px solid #ff003c;
+  box-shadow: -2px 0 10px rgba(255, 0, 60, 0.45);
+}
+
+.tag,
+.listen,
+.line,
+#problem {
+  margin: 0;
+}
+
+.tag {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: #fcee0a;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+}
+
+.processing,
+.listen {
+  color: #00f0ff;
+  font-size: 10px;
+  font-weight: 400;
+  letter-spacing: 0.12em;
+}
+
+.line {
+  color: #f8fafc;
+  font-size: 13px;
+}
+
+.caret {
+  display: inline-block;
+  width: 6px;
+  height: 12px;
+  margin-left: 4px;
+  vertical-align: middle;
+  background: #00f0ff;
+  box-shadow: 0 0 6px #00f0ff;
+  animation: blink-caret 0.9s steps(1, end) infinite;
+}
+
+.tail {
+  position: absolute;
+  right: 72px;
+  bottom: -9px;
+  width: 20px;
+  height: 12px;
+  overflow: visible;
 }
 
 #talk {
-  width: min(78%, 180px);
-  height: 100%;
-  min-height: 0;
+  width: 230px;
+  height: 300px;
+  flex: 0 0 auto;
   padding: 0;
   border: 0;
-  border-radius: 0;
   color: inherit;
   background: transparent;
   cursor: pointer;
 }
 
 .figure {
-  --amp: 0;
   width: 100%;
   height: 100%;
-  min-height: 0;
   display: flex;
-  align-items: center;
+  align-items: flex-end;
   justify-content: center;
 }
 
@@ -108,101 +196,116 @@ main:hover #close,
   display: block;
   width: 100%;
   height: 100%;
-  max-height: 188px;
   overflow: visible;
 }
 
-.housing {
-  fill: #f3eee6;
-  stroke: #e7d9cc;
-  stroke-width: 1.5;
+.hair {
+  fill: #ff4f93;
 }
 
-.slit rect {
-  fill: #110c10;
+.streak {
+  fill: #3dff9a;
 }
 
-.pip {
-  fill: #d23b73;
+.face,
+.body,
+.leg {
+  fill: #120910;
 }
 
-.slit,
-.pip {
+.eye {
+  fill: #7fd7ff;
+}
+
+.panel {
+  fill: #ff7ab0;
+}
+
+.mark {
+  fill: #3dff9a;
+}
+
+.presence[data-mode="idle"] .figure,
+.presence[data-mode="listening"] .figure {
+  animation: levitate 3.5s ease-in-out infinite;
+  filter: drop-shadow(0 0 3px rgba(0, 255, 159, 0.95))
+    drop-shadow(0 0 8px rgba(0, 255, 159, 0.45));
+}
+
+.presence[data-mode="thinking"] .figure {
+  animation: levitate 1.5s ease-in-out infinite;
+  filter: drop-shadow(0 0 4px rgba(0, 240, 255, 0.95))
+    drop-shadow(0 0 10px rgba(0, 240, 255, 0.55));
+}
+
+.presence[data-mode="speaking"] .figure {
+  filter: drop-shadow(0 0 3px rgba(0, 240, 255, 0.95))
+    drop-shadow(0 0 8px rgba(255, 0, 127, 0.75));
+}
+
+.eye {
   transform-box: fill-box;
   transform-origin: center;
+  animation: blink 4.2s ease-in-out infinite;
 }
 
-.figure:not([data-live="true"]) .slit,
-.figure:not([data-live="true"]) .pip {
-  animation: presence-idle 3.4s ease-in-out infinite;
-}
-
-.figure[data-mode="thinking"] .slit,
-.figure[data-mode="thinking"] .pip {
-  animation: presence-think 0.9s ease-in-out infinite;
-}
-
-.figure[data-live="true"] .slit,
-.figure[data-live="true"] .pip {
-  animation: none;
-  transform: translateY(calc(var(--amp) * 18px));
-}
-
-@keyframes presence-idle {
-  0%,
-  100% {
-    transform: translateY(-4px);
-  }
-
-  50% {
-    transform: translateY(5px);
-  }
-}
-
-@keyframes presence-think {
+@keyframes levitate {
   0%,
   100% {
     transform: translateY(0);
   }
 
   50% {
-    transform: translateY(-7px);
+    transform: translateY(-12px);
+  }
+}
+
+@keyframes blink {
+  0%,
+  42%,
+  48%,
+  100% {
+    transform: scaleY(1);
+  }
+
+  45% {
+    transform: scaleY(0.15);
+  }
+}
+
+@keyframes blink-caret {
+  0%,
+  45% {
+    opacity: 1;
+  }
+
+  50%,
+  100% {
+    opacity: 0;
   }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .figure:not([data-live="true"]) .slit,
-  .figure:not([data-live="true"]) .pip,
-  .figure[data-mode="thinking"] .slit,
-  .figure[data-mode="thinking"] .pip {
+  .figure,
+  .eye,
+  .caret {
     animation: none;
   }
 }
 
-#thinking {
-  min-height: 1em;
-  margin: 0;
-  color: #e38bb8;
-  font-size: 12px;
-  letter-spacing: 0.14em;
-}
-
 .wave {
   width: 100%;
-  height: 56px;
-  flex-shrink: 0;
+  height: 42px;
   display: block;
 }
 
 #voice-credit {
   margin: 0;
-  color: #a88898;
+  color: #8f9bb3;
   font-size: 10px;
 }
 
 #problem {
-  margin: 0;
-  color: #ffd0e4;
+  color: #ffb4c8;
   font-size: 12px;
-  text-align: center;
 }
