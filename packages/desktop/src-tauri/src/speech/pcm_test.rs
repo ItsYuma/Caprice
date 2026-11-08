@@ -89,8 +89,10 @@ fn wav_encodes_pcm16_mono() {
         &[0x00, 0x00, 0xff, 0x7f, 0x01, 0x80, 0x00, 0x20]
     );
     let pcm: Vec<i16> = bytes[44..]
-        .chunks_exact(2)
-        .map(|chunk| i16::from_le_bytes([chunk[0], chunk[1]]))
+        .as_chunks::<2>()
+        .0
+        .iter()
+        .map(|chunk| i16::from_le_bytes(*chunk))
         .collect();
     assert_eq!(pcm, vec![0, 32767, -32767, 8192, 16384, 32767, -32767]);
 

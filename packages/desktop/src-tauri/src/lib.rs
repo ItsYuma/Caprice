@@ -1,5 +1,11 @@
 mod speech;
 
+pub use speech::worker::FLAG as SPEECH_WORKER_FLAG;
+
+pub fn speech_worker() -> i32 {
+    speech::worker::run()
+}
+
 use serde::Serialize;
 
 #[derive(Serialize)]

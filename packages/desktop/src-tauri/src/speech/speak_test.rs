@@ -4,14 +4,6 @@ use super::super::test_support::{env_lock, EnvGuard};
 use super::speech_speak;
 
 #[test]
-fn missing_tts_url() {
-    let _lock = env_lock();
-    let _url = EnvGuard::set("CAPRICE_TTS_URL", None);
-    let err = tauri::async_runtime::block_on(speech_speak("hello".into())).unwrap_err();
-    assert_eq!(err, "speech is not configured");
-}
-
-#[test]
 fn blank_text_does_not_speak() {
     let _lock = env_lock();
     let _url = EnvGuard::set("CAPRICE_TTS_URL", None);

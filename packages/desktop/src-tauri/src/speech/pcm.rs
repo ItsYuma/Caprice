@@ -51,8 +51,8 @@ pub(super) fn decode_wav(bytes: &[u8]) -> Result<(u32, Vec<f32>), String> {
     let rate = rate.ok_or_else(|| "wav must be 16-bit mono pcm".to_string())?;
     let pcm = pcm.ok_or_else(|| "wav must be 16-bit mono pcm".to_string())?;
     let mut samples = Vec::with_capacity(pcm.len() / 2);
-    for chunk in pcm.chunks_exact(2) {
-        let value = i16::from_le_bytes([chunk[0], chunk[1]]);
+    for chunk in pcm.as_chunks::<2>().0 {
+        let value = i16::from_le_bytes(*chunk);
         samples.push(value as f32 / 32767.0);
     }
     Ok((rate, samples))

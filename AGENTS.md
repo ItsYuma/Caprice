@@ -6,18 +6,19 @@ Annoying desktop companion. She talks, and later she uses the computer when the 
 
 From the repo root, with Bun 1.4.4:
 
-| Command                | What it does                                        |
-| ---------------------- | --------------------------------------------------- |
-| `bun install`          | Install the workspace                               |
-| `bun test`             | Tests under `packages/`                             |
-| `bun run lint`         | Oxlint, including anti-slop                         |
-| `bun fmt`              | Format                                              |
-| `bun run format:check` | Format check                                        |
-| `bun run typecheck`    | `bun check` on each package                         |
-| `bun run dev`          | Tauri window                                        |
-| `cargo check`          | Rust shell, from `packages/desktop/src-tauri`       |
-| `cargo test`           | Rust shell tests, from `packages/desktop/src-tauri` |
-| `cargo fmt`            | Format the shell                                    |
+| Command                       | What it does                                        |
+| ----------------------------- | --------------------------------------------------- |
+| `bun install`                 | Install the workspace                               |
+| `bun test`                    | Tests under `packages/`                             |
+| `bun run lint`                | Oxlint, including anti-slop                         |
+| `bun fmt`                     | Format                                              |
+| `bun run format:check`        | Format check                                        |
+| `bun run typecheck`           | `bun check` on each package                         |
+| `bun run dev`                 | Tauri window                                        |
+| `cargo check`                 | Rust shell, from `packages/desktop/src-tauri`       |
+| `cargo test`                  | Rust shell tests, from `packages/desktop/src-tauri` |
+| `cargo fmt`                   | Format the shell                                    |
+| `cargo clippy -- -D warnings` | Rust lints for the shell. Warnings fail             |
 
 The shell needs Rust 1.99.1. Tauri 2.12 does not build on 1.83. `packages/desktop/src-tauri/rust-toolchain.toml` selects it.
 
@@ -77,7 +78,7 @@ Do not suppress a lint rule that catches real bugs or protects correctness. `esl
 
 ## Lint
 
-Anti-slop is vendored from `dmmulroy/anti-slop` at `13909c9e07590f5a85d93c62712259fe14a883f7`. Rules are errors in `oxlint.config.ts`. Effect rules stay off. We do not mock modules. We do not take `unknown` except on a type predicate's subject. We do not use `typeof` to narrow values. We do not name a local symbol with the substring `shape`.
+Anti-slop is vendored from `dmmulroy/anti-slop` at `13909c9e07590f5a85d93c62712259fe14a883f7`. Rules are errors in `oxlint.config.ts`. Effect rules stay off. We do not mock modules. We do not take `unknown` except on a type predicate's subject. We do not use `typeof` to narrow values. We do not name a local symbol with the substring `shape`. Rust warnings are errors: `cargo clippy -- -D warnings` from `packages/desktop/src-tauri`. `clippy` is a component in `rust-toolchain.toml`.
 
 ## Local model
 
@@ -99,16 +100,17 @@ Inside the Tauri window, Rust reads those variables when the page asks and posts
 
 Hold Alt+Space while the Caprice window is focused, or hold the button. Release to send. The chord is `talkChord` in `packages/desktop/src/talk.ts`. It is a window shortcut, so it does not register a global hotkey. A window manager that already owns Alt+Space can swallow the chord before the page sees it. The button still works. WebKitGTK does not matter for speech.
 
-`listenAndSay` waits for `listen`, then runs `say`, then the speaker. The listener is `captureListener`. Inside the Tauri window, Rust records the default microphone and transcribes it with the resident ONNX engine. That engine loads once and stays until the window exits. The page calls `speech_listen_start`, `speech_listen_stop`, and `speech_speak`. `scriptedListener` and `recordingSpeaker` stay for tests.
+`listenAndSay` waits for `listen`, then runs `say`, then the speaker. The listener is `captureListener`. Inside the Tauri window, Rust records the default microphone and sends the clip to a speech worker. The worker is this binary started with `--speech-worker`. It loads the model once and stays until the window exits. The page calls `speech_listen_start`, `speech_listen_stop`, and `speech_speak`. `scriptedListener` and `recordingSpeaker` stay for tests.
 
-| Variable              | What it is                                                                                      |
-| --------------------- | ----------------------------------------------------------------------------------------------- |
-| `CAPRICE_STT_MODEL`   | Directory of ONNX weights the shell can load. Encoder, decoder, `nemo128.onnx`, and `vocab.txt` |
-| `CAPRICE_TTS_URL`     | Full URL for a JSON body `{ model, input }`                                                     |
-| `CAPRICE_TTS_MODEL`   | Model name sent in that body                                                                    |
-| `CAPRICE_TTS_VOICE`   | Optional `voice` field. Omit the field when this is empty                                       |
-| `CAPRICE_TTS_API_KEY` | Optional bearer token. Omit it when the endpoint does not need one                              |
+| Variable              | What it is                                                                                                             |
+| --------------------- | ---------------------------------------------------------------------------------------------------------------------- |
+| `CAPRICE_STT_ENGINE`  | Speech engine name. Empty or `onnx` loads the ONNX variant. Any other name is an error                                 |
+| `CAPRICE_STT_MODEL`   | Directory of weights for that engine. The ONNX variant needs the encoder, the decoder, `nemo128.onnx`, and `vocab.txt` |
+| `CAPRICE_TTS_URL`     | Full URL for a JSON body `{ model, input }`                                                                            |
+| `CAPRICE_TTS_MODEL`   | Model name sent in that body                                                                                           |
+| `CAPRICE_TTS_VOICE`   | Optional `voice` field. Omit the field when this is empty                                                              |
+| `CAPRICE_TTS_API_KEY` | Optional bearer token. Omit it when the endpoint does not need one                                                     |
 
-The shell loads the int8 weights in that directory through `transcribe-rs`. The speech model we want is Underdog Bark 3.0 Pro. Those weights are safetensors, Core ML, and MLX, so this loader cannot open them. No microphone name, host, or model id is hardcoded. Caprice does not start Handy and does not use the Web Speech API.
+The ONNX variant loads the int8 weights through `transcribe-rs`. Another speech model is a new engine variant in that worker, not a new language. Underdog Bark 3.0 Pro is the model we want, and its safetensors do not open in the ONNX variant. No microphone name, host, or model id is hardcoded. Caprice does not start Handy and does not use the Web Speech API.
 
 Spoken replies need `CAPRICE_TTS_URL` and `CAPRICE_TTS_MODEL`. Rust posts inside the window. The page plays the bytes. There is no resident TTS model. Outside Tauri the page does not invoke. Listening fails because the speech model is unavailable. Speaking uses `postSpeech` only when both TTS variables are set, and otherwise rejects with `speech is not configured`.

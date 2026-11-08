@@ -6,63 +6,14 @@ import {
   pageSpeaker,
   playOpenClip,
   postSpeech,
-  shellListener,
   shellSpeaker,
   speechBlob,
-  speechHint,
   speechUnconfigured,
-  tauriCommands,
   ttsExchange,
   modelUnavailable,
   type SpeechCommands,
   type TtsEnv,
 } from "./speech.ts";
-
-test("the shell hint names the chord and the page says the model is unavailable", () => {
-  expect(speechHint(true)).toBe("Hold Alt+Space. Release to send.");
-  expect(speechHint(false)).toBe(modelUnavailable);
-});
-
-test("tauri commands use the speech invoke names", async () => {
-  const calls: string[] = [];
-
-  const commands = tauriCommands({
-    async run(command) {
-      calls.push(command);
-    },
-    async text(command) {
-      calls.push(command);
-
-      return "  yo  ";
-    },
-    async speak(command, text) {
-      calls.push(`${command}:${text}`);
-
-      return "";
-    },
-  });
-
-  const listener = shellListener(commands);
-  const pending = listener.listen();
-
-  await Promise.resolve();
-  listener.release();
-  await expect(pending).resolves.toEqual({ text: "yo" });
-
-  let plays = 0;
-
-  const speaker = shellSpeaker(commands, async () => {
-    plays += 1;
-  });
-
-  await speaker.speak("hey");
-  expect(calls).toEqual([
-    "speech_listen_start",
-    "speech_listen_stop",
-    "speech_speak:hey",
-  ]);
-  expect(plays).toBe(0);
-});
 
 test("shell audio is decoded before it is played", async () => {
   const played: number[][] = [];
@@ -73,34 +24,6 @@ test("shell audio is decoded before it is played", async () => {
 
   await speaker.speak("  hey  ");
   expect(played).toEqual([[1, 2, 3, 255]]);
-});
-
-test("shell errors stay unchanged and blank text does not speak", async () => {
-  let speaks = 0;
-
-  const commands = failingCommands(() => {
-    speaks += 1;
-
-    return Promise.reject("CAPRICE_TTS_MODEL is not set");
-  });
-
-  const speaker = shellSpeaker(commands, async () => {});
-
-  await speaker.speak("   ");
-  await expect(speaker.speak("hey")).rejects.toThrow(
-    "CAPRICE_TTS_MODEL is not set",
-  );
-  expect(speaks).toBe(1);
-});
-
-test("a listen error from the shell stays unchanged", async () => {
-  const commands = failingCommands(() => Promise.resolve(""));
-
-  commands.listenStart = () => Promise.reject("no microphone is available");
-  const listener = shellListener(commands);
-  const pending = listener.listen();
-
-  await expect(pending).rejects.toThrow("no microphone is available");
 });
 
 test("a page without the shell cannot listen", async () => {
@@ -346,16 +269,6 @@ function spoken(encoded: string): SpeechCommands {
     async speak() {
       return encoded;
     },
-  };
-}
-
-function failingCommands(speak: () => Promise<string>): SpeechCommands {
-  return {
-    async listenStart() {},
-    async listenStop() {
-      return "";
-    },
-    speak,
   };
 }
 

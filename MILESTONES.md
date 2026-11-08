@@ -27,8 +27,8 @@ Done.
 
 - Hold Alt+Space while the window is focused, or hold the button. Release sends the transcript
 - `listenAndSay` passes that text to `say`, then the page plays the capri line
-- The listener is `captureListener`. Inside the Tauri window, Rust records the default microphone and transcribes it with the resident ONNX engine. Those weights load once and stay until the window exits. Underdog Bark 3.0 Pro is the model we want, and this loader cannot open its safetensors
-- `CAPRICE_STT_MODEL` is the ONNX directory the shell can load. The shell loads the int8 weights. No model path is hardcoded
+- The listener is `captureListener`. Inside the Tauri window, Rust records the default microphone and a speech worker transcribes it. The worker loads the ONNX weights once and stays until the window exits. Underdog Bark 3.0 Pro is the model we want, and this engine cannot open its safetensors
+- `CAPRICE_STT_ENGINE` selects the engine. Empty or `onnx` is the ONNX variant. `CAPRICE_STT_MODEL` is its directory. No model path is hardcoded
 - Spoken replies need `CAPRICE_TTS_URL` and `CAPRICE_TTS_MODEL`. Optional `CAPRICE_TTS_VOICE` and `CAPRICE_TTS_API_KEY`. Rust posts inside the window. The page plays the bytes. There is no resident TTS model
 - `scriptedListener` and `recordingSpeaker` stay for tests
 - No microphone name, sample rate, host, or model id is hardcoded. Caprice does not shell out to Handy or Parakeet and does not use the Web Speech API

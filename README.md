@@ -15,6 +15,6 @@ CAPRICE_TTS_MODEL=your-tts \
 bun run dev
 ```
 
-`CAPRICE_MODEL_URL` and `CAPRICE_MODEL` are required. Hearing needs `CAPRICE_STT_MODEL`, a directory of ONNX files the shell can load (`encoder`, decoder, `nemo128.onnx`, `vocab.txt`). The shell loads those int8 weights once and keeps them. The speech model we want is Underdog Bark 3.0 Pro, and this loader cannot open its safetensors. Spoken replies also need `CAPRICE_TTS_URL` and `CAPRICE_TTS_MODEL`. Nothing in the repo picks a host, a port, or a model path.
+`CAPRICE_MODEL_URL` and `CAPRICE_MODEL` are required. Hearing needs `CAPRICE_STT_MODEL`. Empty `CAPRICE_STT_ENGINE`, or `onnx`, starts a speech worker and loads the int8 ONNX directory (`encoder`, decoder, `nemo128.onnx`, `vocab.txt`) once. The speech model we want is Underdog Bark 3.0 Pro, and that engine cannot open its safetensors. Spoken replies also need `CAPRICE_TTS_URL` and `CAPRICE_TTS_MODEL`. Nothing in the repo picks a host, a port, or a model path.
 
 How the repo is put together: `AGENTS.md` and `docs/architecture.md`. Why each model lives where it does: `docs/technical-directions/`. Who she is allowed to be: `CAPRI.md`. What is next: `MILESTONES.md`.

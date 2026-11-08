@@ -1,13 +1,20 @@
 mod capture;
+mod contract;
+mod engine;
 mod parakeet;
 mod pcm;
-mod resident;
+mod phase;
+mod protocol;
 pub(crate) mod speak;
+mod supervisor;
+pub(crate) mod worker;
 
 use std::sync::{Arc, Mutex, MutexGuard};
 
 use capture::Recording;
-use resident::{load_engine, require_model, with_resident, ResidentStt};
+use engine::requirements;
+use phase::{press, release, Mic, Press, Released};
+use supervisor::Supervisor;
 
 #[derive(Clone)]
 pub(crate) struct SpeechState {
@@ -15,63 +22,68 @@ pub(crate) struct SpeechState {
 }
 
 struct SpeechShared {
-    model: Mutex<Option<resident::SttEngine>>,
-    recording: Mutex<Option<Recording>>,
+    supervisor: Mutex<Supervisor>,
+    mic: Mutex<Mic<Recording>>,
 }
 
 impl SpeechState {
     pub(crate) fn new() -> Self {
         Self {
             shared: Arc::new(SpeechShared {
-                model: Mutex::new(None),
-                recording: Mutex::new(None),
+                supervisor: Mutex::new(Supervisor::new()),
+                mic: Mutex::new(Mic::Idle),
             }),
         }
     }
 }
 
 pub(crate) fn speech_transcribe(state: &SpeechState, path: String) -> Result<String, String> {
-    require_model()?;
+    requirements()?;
     let bytes = std::fs::read(&path).map_err(|err| err.to_string())?;
     let (rate, samples) = pcm::decode_wav(&bytes)?;
-    transcribe_samples(state, &samples, rate)
+    lock(&state.shared.supervisor).transcribe(&samples, rate)
 }
 
 pub(crate) fn speech_listen_start(state: &SpeechState) -> Result<(), String> {
-    require_model()?;
-    let mut slot = lock(&state.shared.recording);
-    if slot.is_some() {
-        return Err("already listening".to_string());
+    requirements()?;
+    let mut mic = lock(&state.shared.mic);
+    match press(std::mem::replace(&mut *mic, Mic::Idle)) {
+        Press::Open => match capture::open_input() {
+            Ok(recording) => {
+                *mic = Mic::Hot(recording);
+                Ok(())
+            }
+            Err(err) => {
+                *mic = Mic::Idle;
+                Err(err)
+            }
+        },
+        Press::Busy(recording) => {
+            *mic = Mic::Hot(recording);
+            Err("already listening".to_string())
+        }
     }
-    *slot = Some(capture::open_input()?);
-    Ok(())
 }
 
 pub(crate) fn speech_listen_stop(state: &SpeechState) -> Result<String, String> {
-    require_model()?;
-    let recording = {
-        let mut slot = lock(&state.shared.recording);
-        slot.take().ok_or_else(|| "not listening".to_string())?
+    requirements()?;
+    let captured = {
+        let mut mic = lock(&state.shared.mic);
+        match release(std::mem::replace(&mut *mic, Mic::Idle)) {
+            Released::Idle => return Err("not listening".to_string()),
+            Released::Captured(recording) => {
+                let Recording {
+                    stream,
+                    samples,
+                    sample_rate,
+                } = recording;
+                drop(stream);
+                let audio = lock(&samples).clone();
+                (audio, sample_rate)
+            }
+        }
     };
-    let Recording {
-        stream,
-        samples,
-        sample_rate,
-    } = recording;
-    drop(stream);
-    let captured = lock(&samples).clone();
-    transcribe_samples(state, &captured, sample_rate)
-}
-
-fn transcribe_samples(
-    state: &SpeechState,
-    samples: &[f32],
-    sample_rate: u32,
-) -> Result<String, String> {
-    let mut slot = lock(&state.shared.model);
-    with_resident(&mut slot, load_engine, |engine| {
-        engine.transcribe(samples, sample_rate)
-    })
+    lock(&state.shared.supervisor).transcribe(&captured.0, captured.1)
 }
 
 pub(super) fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
@@ -83,7 +95,3 @@ pub(super) fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
 
 #[cfg(test)]
 mod test_support;
-
-#[cfg(test)]
-#[path = "listen_test.rs"]
-mod listen_test;
