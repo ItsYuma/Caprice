@@ -5,7 +5,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use super::super::reply::perform;
 use super::super::test_support::{env_lock, woof_drivers, EnvGuard};
 use super::super::ReplyState;
-use super::{read_reply, write_text, ChildReply, WoofVoice};
+use super::{python_program, read_reply, write_text, ChildReply, WoofVoice};
 
 const FAKE: &str = r#"import os
 import sys
@@ -214,6 +214,7 @@ fn frame(status: u32, body: &[u8]) -> Vec<u8> {
 #[test]
 fn resident_child_stays_warm() {
     let _lock = env_lock();
+    let _python = EnvGuard::set("CAPRICE_PYTHON", None);
     let home = Home::new();
     let log = LogFile::new();
     let _engine = EnvGuard::set("CAPRICE_TTS_ENGINE", Some("woof"));
@@ -261,6 +262,7 @@ fn resident_child_stays_warm() {
 #[test]
 fn fault_keeps_the_child_and_a_dead_child_is_replaced() {
     let _lock = env_lock();
+    let _python = EnvGuard::set("CAPRICE_PYTHON", None);
     let home = Home::new();
     let log = LogFile::new();
     let _engine = EnvGuard::set("CAPRICE_TTS_ENGINE", Some("woof"));
@@ -298,6 +300,7 @@ fn fault_keeps_the_child_and_a_dead_child_is_replaced() {
 #[test]
 fn voice_and_directory_changes_start_a_new_child() {
     let _lock = env_lock();
+    let _python = EnvGuard::set("CAPRICE_PYTHON", None);
     let first_home = Home::new();
     let second_home = Home::new();
     let log = LogFile::new();
@@ -334,6 +337,7 @@ fn voice_and_directory_changes_start_a_new_child() {
 #[test]
 fn dropping_the_reply_state_kills_the_child() {
     let _lock = env_lock();
+    let _python = EnvGuard::set("CAPRICE_PYTHON", None);
     let home = Home::new();
     let log = LogFile::new();
     let _engine = EnvGuard::set("CAPRICE_TTS_ENGINE", Some("woof"));
@@ -359,6 +363,7 @@ fn dropping_the_reply_state_kills_the_child() {
 #[test]
 fn missing_directory_and_unknown_voice_do_not_spawn() {
     let _lock = env_lock();
+    let _python = EnvGuard::set("CAPRICE_PYTHON", None);
     let home = Home::new();
     let log = LogFile::new();
     let _engine = EnvGuard::set("CAPRICE_TTS_ENGINE", Some("woof"));
@@ -386,4 +391,15 @@ fn missing_directory_and_unknown_voice_do_not_spawn() {
     assert!(speak(&state, " \n").unwrap().is_empty());
     assert_eq!(woof_drivers(), before);
     assert!(!std::path::Path::new(&log.path()).exists());
+}
+
+#[test]
+fn python_program_defaults_and_honors_an_override() {
+    let _lock = env_lock();
+    let _cleared = EnvGuard::set("CAPRICE_PYTHON", None);
+    assert_eq!(python_program(), "python3");
+    let _set = EnvGuard::set("CAPRICE_PYTHON", Some(" /caprice/python "));
+    assert_eq!(python_program(), "/caprice/python");
+    let _empty = EnvGuard::set("CAPRICE_PYTHON", Some("   "));
+    assert_eq!(python_program(), "python3");
 }

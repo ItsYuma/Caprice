@@ -10,7 +10,7 @@ Each capri line is one POST. The response bytes are what the page plays. Inside 
 
 ## Woof
 
-`woof` speaks with [Underdog Woof](https://huggingface.co/ConwayResearch/Underdog-Woof), the two-voice numpy package. `CAPRICE_TTS_WOOF` is the directory from `hf download ConwayResearch/Underdog-Woof --local-dir`. The child is `python3 -u`, so `python3` is required. It imports `Woof` once and stays warm. Empty or `juno` is Juno. `mira` is Mira. A voice change or a directory change starts a new child. Leaving the window stops it.
+`woof` speaks with [Underdog Woof](https://huggingface.co/ConwayResearch/Underdog-Woof), the two-voice numpy package. `CAPRICE_TTS_WOOF` is the directory from `hf download ConwayResearch/Underdog-Woof --local-dir`. The child is `python3 -u`. `CAPRICE_PYTHON` replaces that program when it is set, so a virtual environment can own numpy. It imports `Woof` once and stays warm. Empty or `juno` is Juno. `mira` is Mira. A voice change or a directory change starts a new child. Leaving the window stops it.
 
 The child is a pipe, not JSON. The parent writes a little-endian length and the UTF-8 text. The child writes a little-endian status and a frame. Status 0 is a wav file. Status 1 is an error and the child stays. A short read, a frame above 8 MiB, or any other status drops the child. Its stdout is pointed at stderr before the import, so library logs do not sit in the wav.
 

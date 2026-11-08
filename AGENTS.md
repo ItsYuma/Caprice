@@ -6,19 +6,21 @@ Annoying desktop companion. She talks, and later she uses the computer when the 
 
 From the repo root, with Bun 1.4.4:
 
-| Command                       | What it does                                        |
-| ----------------------------- | --------------------------------------------------- |
-| `bun install`                 | Install the workspace                               |
-| `bun test`                    | Tests under `packages/`                             |
-| `bun run lint`                | Oxlint, including anti-slop                         |
-| `bun fmt`                     | Format                                              |
-| `bun run format:check`        | Format check                                        |
-| `bun run typecheck`           | `bun check` on each package                         |
-| `bun run dev`                 | Tauri window                                        |
-| `cargo check`                 | Rust shell, from `packages/desktop/src-tauri`       |
-| `cargo test`                  | Rust shell tests, from `packages/desktop/src-tauri` |
-| `cargo fmt`                   | Format the shell                                    |
-| `cargo clippy -- -D warnings` | Rust lints for the shell. Warnings fail             |
+| Command                       | What it does                                           |
+| ----------------------------- | ------------------------------------------------------ |
+| `bun install`                 | Install the workspace                                  |
+| `bun test`                    | Tests under `packages/` and `scripts/`                 |
+| `bun run lint`                | Oxlint, including anti-slop                            |
+| `bun fmt`                     | Format                                                 |
+| `bun run format:check`        | Format check                                           |
+| `bun run typecheck`           | `bun check` on each package                            |
+| `scripts/install.sh`          | Linux and macOS setup: tools, Woof, Bark, config       |
+| `scripts/install.ps1`         | Windows setup. Same flags as `scripts/install.sh`      |
+| `bun run dev`                 | Tauri window. Fills unset vars from the install config |
+| `cargo check`                 | Rust shell, from `packages/desktop/src-tauri`          |
+| `cargo test`                  | Rust shell tests, from `packages/desktop/src-tauri`    |
+| `cargo fmt`                   | Format the shell                                       |
+| `cargo clippy -- -D warnings` | Rust lints for the shell. Warnings fail                |
 
 The shell needs Rust 1.99.1. Tauri 2.12 does not build on 1.83. `packages/desktop/src-tauri/rust-toolchain.toml` selects it.
 
@@ -31,6 +33,7 @@ Stable Bun 1.4.4 has `bun test`, `bun fmt`, and `bun check`. `bun lint` in that 
 | `packages/core`              | `Session`, `Model`, `Tool`, `Result`, persona slicing |
 | `packages/voice`             | `Listener` and `Speaker`                              |
 | `packages/desktop`           | React window and `sayAndSpeak`                        |
+| `scripts/`                   | `install.sh`, `install.ps1`, and the dev launcher     |
 | `skills/`                    | Text the local model reads                            |
 | `docs/architecture.md`       | The diagram and the dependency rule                   |
 | `docs/technical-directions/` | A decision later work would guess wrong without       |
@@ -106,8 +109,9 @@ Hold Alt+Space while the Caprice window is focused, or hold the button. Release 
 | --------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `CAPRICE_STT_ENGINE`  | Speech engine name. Empty or `onnx` loads the int8 ONNX directory. `bark` loads a Parakeet safetensors checkpoint. Any other name is an error                        |
 | `CAPRICE_STT_MODEL`   | Directory for that engine. ONNX needs the encoder, the decoder, `nemo128.onnx`, and `vocab.txt`. Bark needs `config.json`, `tokenizer.json`, and `model.safetensors` |
-| `CAPRICE_TTS_ENGINE`  | Empty or `http` is the POST. `woof` is the resident child and needs `python3`                                                                                        |
-| `CAPRICE_TTS_WOOF`    | Underdog Woof directory from `hf download ConwayResearch/Underdog-Woof --local-dir`                                                                                  |
+| `CAPRICE_TTS_ENGINE`  | Empty or `http` is the POST. `woof` is the resident child                                                                                                            |
+| `CAPRICE_TTS_WOOF`    | Underdog Woof directory. The installer stores the Hugging Face checkout here                                                                                         |
+| `CAPRICE_PYTHON`      | Interpreter for the Woof child. Empty uses `python3`                                                                                                                 |
 | `CAPRICE_TTS_URL`     | Full URL for a JSON body `{ model, input }`                                                                                                                          |
 | `CAPRICE_TTS_MODEL`   | Model name sent in that body                                                                                                                                         |
 | `CAPRICE_TTS_VOICE`   | Optional. HTTP adds `voice` when this is non-empty. Woof uses empty or `juno` for Juno and `mira` for Mira                                                           |
@@ -115,4 +119,4 @@ Hold Alt+Space while the Caprice window is focused, or hold the button. Release 
 
 The ONNX variant loads the int8 weights through `transcribe-rs`. The Bark variant loads the safetensors checkpoint through telmo, in bf16, and prepends a quarter second of silence. Another speech model is a new engine variant in that worker, not a new language. No microphone name, host, or model id is hardcoded. Caprice does not start Handy and does not use the Web Speech API.
 
-`CAPRICE_TTS_ENGINE` selects the spoken reply. Empty or `http` posts to `CAPRICE_TTS_URL` with `CAPRICE_TTS_MODEL`. `woof` is a resident child, and `python3` is required for it. `CAPRICE_TTS_WOOF` is the Underdog Woof directory. Rust speaks inside the window and returns the bytes. The page plays them. `speech_credit` is `Voice by Underdog Woof` for `woof`, and empty for HTTP. Outside Tauri the page does not invoke. Listening fails because the speech model is unavailable. Speaking uses `postSpeech` only when both `CAPRICE_TTS_URL` and `CAPRICE_TTS_MODEL` are set, and otherwise rejects with `speech is not configured`.
+`CAPRICE_TTS_ENGINE` selects the spoken reply. Empty or `http` posts to `CAPRICE_TTS_URL` with `CAPRICE_TTS_MODEL`. `woof` is a resident child. `CAPRICE_PYTHON` is that interpreter when it is set, and empty uses `python3`. `CAPRICE_TTS_WOOF` is the Underdog Woof directory. Rust speaks inside the window and returns the bytes. The page plays them. `speech_credit` is `Voice by Underdog Woof` for `woof`, and empty for HTTP. `scripts/install.sh` and `scripts/install.ps1` download Woof and Bark into the user data directory and write `config.json`. `bun run dev` fills any unset `CAPRICE_*` variable from that file. Outside Tauri the page does not invoke. Listening fails because the speech model is unavailable. Speaking uses `postSpeech` only when both `CAPRICE_TTS_URL` and `CAPRICE_TTS_MODEL` are set, and otherwise rejects with `speech is not configured`.

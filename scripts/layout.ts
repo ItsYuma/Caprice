@@ -1,0 +1,481 @@
+export const woofRepo = "ConwayResearch/Underdog-Woof";
+
+export const barkRepo = "ConwayResearch/Underdog-Bark-3.0-Pro";
+
+export const barkFileNames = [
+  "config.json",
+  "tokenizer.json",
+  "model.safetensors",
+] as const;
+
+export const bunVersion = "1.4.4";
+
+export type Platform = "linux" | "macos" | "windows";
+
+export type CapriceConfig = {
+  modelUrl: string;
+  model: string;
+  modelApiKey: string;
+  sttEngine: string;
+  sttModel: string;
+  ttsEngine: string;
+  ttsWoof: string;
+  ttsVoice: string;
+  python: string;
+  repo: string;
+};
+
+export type SetupArgs = {
+  modelUrl: string;
+  model: string;
+  modelApiKey: string;
+  voice: string;
+  dataDir: string;
+  python: string;
+  help: boolean;
+};
+
+export function platformOf(osName: string): Platform | undefined {
+  if (osName === "linux") {
+    return "linux";
+  }
+
+  if (osName === "darwin") {
+    return "macos";
+  }
+
+  if (osName === "win32") {
+    return "windows";
+  }
+
+  return undefined;
+}
+
+export function capriceDataDir(
+  platform: Platform,
+  home: string,
+  xdgDataHome: string,
+  localAppData: string,
+): string {
+  if (platform === "windows") {
+    const base =
+      localAppData.length > 0
+        ? localAppData
+        : joinPath(platform, home, "AppData", "Local");
+
+    return joinPath(platform, base, "caprice");
+  }
+
+  if (platform === "macos") {
+    return joinPath(
+      platform,
+      home,
+      "Library",
+      "Application Support",
+      "caprice",
+    );
+  }
+
+  const base =
+    xdgDataHome.length > 0
+      ? xdgDataHome
+      : joinPath(platform, home, ".local", "share");
+
+  return joinPath(platform, base, "caprice");
+}
+
+export function joinPath(
+  platform: Platform,
+  ...parts: readonly string[]
+): string {
+  const separator = platform === "windows" ? "\\" : "/";
+  let path = "";
+
+  for (const part of parts) {
+    if (part.length === 0) {
+      continue;
+    }
+
+    if (path.length === 0) {
+      path = part;
+
+      continue;
+    }
+
+    const root = part.startsWith("/") || part.startsWith("\\");
+
+    if (root) {
+      path = part;
+
+      continue;
+    }
+
+    const glued = path.endsWith("/") || path.endsWith("\\");
+    path = glued ? `${path}${part}` : `${path}${separator}${part}`;
+  }
+
+  return path;
+}
+
+export function woofDir(platform: Platform, data: string): string {
+  return joinPath(platform, data, "models", "underdog-woof");
+}
+
+export function barkDir(platform: Platform, data: string): string {
+  return joinPath(platform, data, "models", "underdog-bark");
+}
+
+export function venvDir(platform: Platform, data: string): string {
+  return joinPath(platform, data, "python");
+}
+
+export function venvPython(platform: Platform, data: string): string {
+  if (platform === "windows") {
+    return joinPath(platform, venvDir(platform, data), "Scripts", "python.exe");
+  }
+
+  return joinPath(platform, venvDir(platform, data), "bin", "python3");
+}
+
+export function configPath(platform: Platform, data: string): string {
+  return joinPath(platform, data, "config.json");
+}
+
+export function launcherPath(platform: Platform, data: string): string {
+  if (platform === "windows") {
+    return joinPath(platform, data, "run.ps1");
+  }
+
+  return joinPath(platform, data, "run.sh");
+}
+
+export function missingNames(
+  present: readonly string[],
+  required: readonly string[],
+): string[] {
+  const missing: string[] = [];
+
+  for (const name of required) {
+    let found = false;
+
+    for (const have of present) {
+      if (have === name) {
+        found = true;
+      }
+    }
+
+    if (!found) {
+      missing.push(name);
+    }
+  }
+
+  return missing;
+}
+
+export function parseSetupArgs(argv: readonly string[]): SetupArgs | string {
+  const args: SetupArgs = {
+    modelUrl: "",
+    model: "",
+    modelApiKey: "",
+    voice: "",
+    dataDir: "",
+    python: "",
+    help: false,
+  };
+
+  for (let index = 0; index < argv.length; index += 1) {
+    const token = argv[index] ?? "";
+    const next = argv[index + 1] ?? "";
+
+    if (token === "--help" || token === "-h") {
+      args.help = true;
+
+      continue;
+    }
+
+    if (token === "--skip-system") {
+      continue;
+    }
+
+    const modelUrl = flagValue(token, next, "--model-url");
+
+    if (modelUrl !== undefined) {
+      args.modelUrl = modelUrl.value;
+      index += modelUrl.ate;
+
+      continue;
+    }
+
+    const model = flagValue(token, next, "--model");
+
+    if (model !== undefined) {
+      args.model = model.value;
+      index += model.ate;
+
+      continue;
+    }
+
+    const modelApiKey = flagValue(token, next, "--model-api-key");
+
+    if (modelApiKey !== undefined) {
+      args.modelApiKey = modelApiKey.value;
+      index += modelApiKey.ate;
+
+      continue;
+    }
+
+    const voice = flagValue(token, next, "--voice");
+
+    if (voice !== undefined) {
+      args.voice = voice.value.trim().toLowerCase();
+      index += voice.ate;
+
+      continue;
+    }
+
+    const dataDir = flagValue(token, next, "--data-dir");
+
+    if (dataDir !== undefined) {
+      args.dataDir = dataDir.value;
+      index += dataDir.ate;
+
+      continue;
+    }
+
+    const python = flagValue(token, next, "--python");
+
+    if (python !== undefined) {
+      args.python = python.value;
+      index += python.ate;
+
+      continue;
+    }
+
+    return `unknown argument: ${token}`;
+  }
+
+  if (args.voice.length > 0 && args.voice !== "juno" && args.voice !== "mira") {
+    return `unknown woof voice: ${args.voice}`;
+  }
+
+  return args;
+}
+
+export function filled(
+  flag: string,
+  fromEnv: string,
+  fromFile: string,
+): string {
+  const chosen = flag.trim();
+
+  if (chosen.length > 0) {
+    return chosen;
+  }
+
+  const env = fromEnv.trim();
+
+  if (env.length > 0) {
+    return env;
+  }
+
+  return fromFile.trim();
+}
+
+export function configText(config: CapriceConfig): string {
+  return `${JSON.stringify(config, null, 2)}\n`;
+}
+
+export function readConfig(text: string): CapriceConfig | undefined {
+  let parsed: unknown;
+
+  try {
+    parsed = JSON.parse(text);
+  } catch {
+    return undefined;
+  }
+
+  if (!isPlainObject(parsed)) {
+    return undefined;
+  }
+
+  return {
+    modelUrl: readString(parsed, "modelUrl") ?? "",
+    model: readString(parsed, "model") ?? "",
+    modelApiKey: readString(parsed, "modelApiKey") ?? "",
+    sttEngine: readString(parsed, "sttEngine") ?? "",
+    sttModel: readString(parsed, "sttModel") ?? "",
+    ttsEngine: readString(parsed, "ttsEngine") ?? "",
+    ttsWoof: readString(parsed, "ttsWoof") ?? "",
+    ttsVoice: readString(parsed, "ttsVoice") ?? "",
+    python: readString(parsed, "python") ?? "",
+    repo: readString(parsed, "repo") ?? "",
+  };
+}
+
+export function shellQuote(value: string): string {
+  return `'${value.replaceAll("'", "'\\''")}'`;
+}
+
+export function posixLauncher(repo: string): string {
+  return `#!/bin/sh
+set -eu
+export PATH="$HOME/.bun/bin:$PATH"
+cd ${shellQuote(repo)}
+exec bun run dev
+`;
+}
+
+export function windowsLauncher(repo: string): string {
+  return `$ErrorActionPreference = "Stop"
+$env:PATH = "$env:USERPROFILE\\.bun\\bin;" + $env:PATH
+Set-Location -LiteralPath ${powershellQuote(repo)}
+bun run dev
+`;
+}
+
+export function launcherText(platform: Platform, repo: string): string {
+  if (platform === "windows") {
+    return windowsLauncher(repo);
+  }
+
+  return posixLauncher(repo);
+}
+
+export type LaunchEnv = {
+  modelUrl: string;
+  model: string;
+  modelApiKey: string;
+  sttEngine: string;
+  sttModel: string;
+  ttsEngine: string;
+  ttsWoof: string;
+  ttsVoice: string;
+  python: string;
+  path: string;
+};
+
+export function launchEnv(
+  config: CapriceConfig,
+  current: LaunchEnv,
+  platform: Platform,
+): LaunchEnv {
+  const python = prefer(current.python, config.python);
+  const path = prependPython(platform, python, current.path);
+
+  return {
+    modelUrl: prefer(current.modelUrl, config.modelUrl),
+    model: prefer(current.model, config.model),
+    modelApiKey: prefer(current.modelApiKey, config.modelApiKey),
+    sttEngine: prefer(current.sttEngine, config.sttEngine),
+    sttModel: prefer(current.sttModel, config.sttModel),
+    ttsEngine: prefer(current.ttsEngine, config.ttsEngine),
+    ttsWoof: prefer(current.ttsWoof, config.ttsWoof),
+    ttsVoice: prefer(current.ttsVoice, config.ttsVoice),
+    python,
+    path,
+  };
+}
+
+export const installHelp = `Download Woof and Bark, create a Python environment, and write Caprice's config.
+
+Linux and macOS:
+  scripts/install.sh --model-url http://your-brain/v1/chat/completions --model your-model
+
+Windows:
+  powershell -ExecutionPolicy Bypass -File scripts\\install.ps1 --model-url http://your-brain/v1/chat/completions --model your-model
+
+--model-url       Chat endpoint. CAPRICE_MODEL_URL is the same value.
+--model           Model name sent to that endpoint.
+--model-api-key   Optional bearer token.
+--voice           juno or mira. Empty means juno.
+--data-dir        Where models, Python, and config.json go.
+--python          System Python used to create the virtual environment.
+--skip-system     Do not install OS packages.
+--help            Show this text.
+
+Then, from the repo, run bun run dev. The first launch compiles the window.
+`;
+
+function prefer(current: string, saved: string): string {
+  const chosen = current.trim();
+
+  if (chosen.length > 0) {
+    return chosen;
+  }
+
+  return saved.trim();
+}
+
+function prependPython(
+  platform: Platform,
+  python: string,
+  path: string,
+): string {
+  const separator = platform === "windows" ? "\\" : "/";
+  const index = python.lastIndexOf(separator);
+
+  if (index <= 0) {
+    return path;
+  }
+
+  const bin = python.slice(0, index);
+  const pathSeparator = platform === "windows" ? ";" : ":";
+
+  if (path.length === 0) {
+    return bin;
+  }
+
+  return `${bin}${pathSeparator}${path}`;
+}
+
+type Flag = {
+  value: string;
+  ate: number;
+};
+
+function flagValue(
+  token: string,
+  next: string,
+  name: string,
+): Flag | undefined {
+  if (token === name) {
+    return { value: next, ate: 1 };
+  }
+
+  const prefix = `${name}=`;
+
+  if (token.startsWith(prefix)) {
+    return { value: token.slice(prefix.length), ate: 0 };
+  }
+
+  return undefined;
+}
+
+function powershellQuote(value: string): string {
+  return `'${value.replaceAll("'", "''")}'`;
+}
+
+type JsonRecord = {
+  readonly [key: string]: JsonValue;
+};
+
+type JsonValue =
+  string | number | boolean | null | JsonRecord | readonly JsonValue[];
+
+function isString(value: unknown): value is string {
+  return Object.prototype.toString.call(value) === "[object String]";
+}
+
+function isPlainObject(value: unknown): value is JsonRecord {
+  return Object.prototype.toString.call(value) === "[object Object]";
+}
+
+function readString(value: JsonRecord, key: string): string | undefined {
+  for (const [name, field] of Object.entries(value)) {
+    if (name === key && isString(field)) {
+      return field;
+    }
+  }
+
+  return undefined;
+}

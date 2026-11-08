@@ -121,9 +121,24 @@ fn reusable(resident: &mut Box<Resident>, voice: WoofVoice, directory: &str) -> 
     matches!(resident.child.try_wait(), Ok(None))
 }
 
+fn python_program() -> String {
+    match std::env::var("CAPRICE_PYTHON") {
+        Ok(program) => {
+            let trimmed = program.trim();
+            if trimmed.is_empty() {
+                "python3".to_string()
+            } else {
+                trimmed.to_string()
+            }
+        }
+        Err(_) => "python3".to_string(),
+    }
+}
+
 fn start(voice: WoofVoice, directory: String) -> Result<Resident, String> {
+    let program = python_program();
     let driver = write_driver()?;
-    let spawned = Command::new("python3")
+    let spawned = Command::new(&program)
         .arg("-u")
         .arg(&driver)
         .arg(voice.name())
@@ -137,7 +152,7 @@ fn start(voice: WoofVoice, directory: String) -> Result<Resident, String> {
         Ok(child) => child,
         Err(err) => {
             let _ = std::fs::remove_file(&driver);
-            return Err(err.to_string());
+            return Err(format!("could not start {program}: {err}"));
         }
     };
     let (stdin, stdout) = match (child.stdin.take(), child.stdout.take()) {
