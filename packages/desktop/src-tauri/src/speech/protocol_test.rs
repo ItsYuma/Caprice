@@ -42,3 +42,23 @@ fn load_and_text_use_the_worker_wire() {
     assert_eq!(wire, "{\"op\":\"partial\",\"text\":\"hel\"}");
     assert_eq!(serde_json::from_str::<Response>(&wire).unwrap(), partial);
 }
+
+#[test]
+fn feed_finish_and_partial_use_the_worker_wire() {
+    let feed = Request::Feed { pcm: "abc".into() };
+    let wire = serde_json::to_string(&feed).unwrap();
+    assert_eq!(wire, "{\"op\":\"feed\",\"pcm\":\"abc\"}");
+    assert_eq!(serde_json::from_str::<Request>(&wire).unwrap(), feed);
+
+    let finish = Request::Finish;
+    let wire = serde_json::to_string(&finish).unwrap();
+    assert_eq!(wire, "{\"op\":\"finish\"}");
+    assert_eq!(serde_json::from_str::<Request>(&wire).unwrap(), finish);
+
+    let partial = Response::Partial {
+        text: String::new(),
+    };
+    let wire = serde_json::to_string(&partial).unwrap();
+    assert_eq!(wire, "{\"op\":\"partial\",\"text\":\"\"}");
+    assert_eq!(serde_json::from_str::<Response>(&wire).unwrap(), partial);
+}

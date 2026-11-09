@@ -1,9 +1,6 @@
 use super::super::engine::EngineKind;
 use super::super::protocol::{Request, Response};
-use super::{
-    begin, drive, final_reply, partial_reply, press, release, warm, Job, Mic, Phase, Press,
-    Released, StreamAnswer,
-};
+use super::{begin, drive, press, release, Follow, Job, Mic, Phase, Press, Released};
 
 struct Token(u8);
 
@@ -13,6 +10,7 @@ fn job(pcm: &str) -> Job {
         rate: 16_000,
         model: "/models/speech".into(),
         engine: EngineKind::Onnx,
+        follow: Follow::Clip,
     }
 }
 
@@ -69,8 +67,9 @@ fn an_idle_worker_loads_once_and_then_stays_live() {
                     },
                 ))
             }
-            Request::Load { .. } => panic!("reloaded"),
-            Request::Feed { .. } | Request::Finish => panic!("streamed"),
+            Request::Load { .. } | Request::Feed { .. } | Request::Finish => {
+                panic!("reloaded")
+            }
         },
     );
 
@@ -147,78 +146,46 @@ fn begin_on_a_live_worker_does_not_spawn() {
 }
 
 #[test]
-fn warm_loads_a_parakeet_worker_once() {
-    let (phase, result) = warm(
+fn loading_stops_when_the_worker_is_ready() {
+    let mut loading = job("");
+    loading.follow = Follow::Load;
+    let (phase, result) = drive(
         Phase::Idle,
-        "/models/speech".into(),
-        EngineKind::Parakeet,
+        loading,
         || Ok(Token(1)),
         |worker, request| match request {
-            Request::Load { model, engine } => {
-                assert_eq!(model, "/models/speech");
-                assert_eq!(engine, "parakeet");
+            Request::Load { engine, .. } => {
+                assert_eq!(engine, "onnx");
                 Ok((worker, Response::Ready))
             }
             Request::Transcribe { .. } | Request::Feed { .. } | Request::Finish => {
-                panic!("streamed during load")
+                panic!("followed the load")
             }
         },
     );
-    assert!(result.is_ok());
-    let Phase::Live(worker) = phase else {
-        panic!("worker dropped");
-    };
+    assert_eq!(result.unwrap(), "");
+    assert!(matches!(phase, Phase::Live(Token(1))));
 
-    let (phase, result) = warm(
-        Phase::Live(worker),
-        "/other".into(),
-        EngineKind::Onnx,
+    let mut again = job("");
+    again.follow = Follow::Load;
+    let (phase, result) = drive(
+        phase,
+        again,
         || panic!("spawned"),
         |_worker, _request| panic!("sent"),
     );
-    assert!(result.is_ok());
+    assert_eq!(result.unwrap(), "");
     assert!(matches!(phase, Phase::Live(Token(1))));
-
-    let (phase, result) = warm(
-        Phase::Idle,
-        "/models/speech".into(),
-        EngineKind::Parakeet,
-        || Ok(Token(2)),
-        |worker, _request| {
-            Ok((
-                worker,
-                Response::Error {
-                    message: "missing weights".into(),
-                },
-            ))
-        },
-    );
-    assert!(matches!(phase, Phase::Idle));
-    assert_eq!(result.unwrap_err(), "missing weights");
 }
 
 #[test]
-fn feed_reads_partial_and_finish_reads_text() {
-    assert!(matches!(
-        partial_reply(Response::Partial { text: "hel".into() }),
-        StreamAnswer::Text(text) if text == "hel"
-    ));
-    assert!(matches!(
-        partial_reply(Response::Text { text: "hel".into() }),
-        StreamAnswer::Broke
-    ));
-    assert!(matches!(
-        final_reply(Response::Text { text: "hello".into() }),
-        StreamAnswer::Text(text) if text == "hello"
-    ));
-    assert!(matches!(
-        final_reply(Response::Partial { text: "hel".into() }),
-        StreamAnswer::Broke
-    ));
-    assert!(matches!(
-        partial_reply(Response::Error {
-            message: "empty".into(),
-        }),
-        StreamAnswer::Failed(message) if message == "empty"
-    ));
+fn a_partial_during_a_clip_drops_the_worker() {
+    let (phase, result) = drive(
+        Phase::Live(Token(1)),
+        job("pcm"),
+        || panic!("spawned"),
+        |worker, _request| Ok((worker, Response::Partial { text: "no".into() })),
+    );
+    assert!(matches!(phase, Phase::Idle));
+    assert_eq!(result.unwrap_err(), "speech worker broke the protocol");
 }

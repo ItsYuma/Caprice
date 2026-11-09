@@ -3,7 +3,7 @@ use std::process::{Child, ChildStdin, Command, Stdio};
 
 use super::engine::requirements;
 use super::pcm::resample_linear;
-use super::phase::{drive, final_reply, partial_reply, warm, Job, Phase, StreamAnswer};
+use super::phase::{drive, Follow, Job, Phase};
 use super::protocol::{encode_pcm, Request, Response};
 use super::worker::FLAG;
 
@@ -46,6 +46,7 @@ impl Supervisor {
             rate: RATE,
             model,
             engine,
+            follow: Follow::Clip,
         };
         let phase = std::mem::replace(&mut self.phase, Phase::Idle);
         let (phase, result) = drive(phase, job, spawn, roundtrip);
@@ -53,49 +54,63 @@ impl Supervisor {
         result
     }
 
-    pub(super) fn warm(&mut self) -> Result<(), String> {
+    pub(super) fn ensure(&mut self) -> Result<(), String> {
+        if matches!(self.phase, Phase::Live(_)) {
+            return Ok(());
+        }
         let (model, engine) = requirements()?;
+        let job = Job {
+            pcm: String::new(),
+            rate: RATE,
+            model,
+            engine,
+            follow: Follow::Load,
+        };
         let phase = std::mem::replace(&mut self.phase, Phase::Idle);
-        let (phase, result) = warm(phase, model, engine, spawn, roundtrip);
+        let (phase, result) = drive(phase, job, spawn, roundtrip);
         self.phase = phase;
-        result
+        result.map(|_| ())
     }
 
-    pub(super) fn feed(&mut self, samples: &[f32]) -> Result<String, String> {
+    pub(super) fn feed(&mut self, samples: &[f32]) -> Result<(), String> {
         if samples.is_empty() {
-            return Ok(String::new());
+            return Ok(());
         }
-        self.exchange(
-            Request::Feed {
-                pcm: encode_pcm(samples),
-            },
-            partial_reply,
-        )
+        self.ensure()?;
+        match self.round(Request::Feed {
+            pcm: encode_pcm(samples),
+        })? {
+            Response::Partial { .. } => Ok(()),
+            Response::Error { message } => Err(message),
+            _ => {
+                self.phase = Phase::Idle;
+                Err("speech worker broke the protocol".to_string())
+            }
+        }
     }
 
     pub(super) fn finish(&mut self) -> Result<String, String> {
-        self.exchange(Request::Finish, final_reply)
+        self.ensure()?;
+        match self.round(Request::Finish)? {
+            Response::Text { text } => Ok(text),
+            Response::Error { message } => Err(message),
+            _ => {
+                self.phase = Phase::Idle;
+                Err("speech worker broke the protocol".to_string())
+            }
+        }
     }
 
-    fn exchange(
-        &mut self,
-        request: Request,
-        read: fn(Response) -> StreamAnswer,
-    ) -> Result<String, String> {
+    fn round(&mut self, request: Request) -> Result<Response, String> {
         let Phase::Live(worker) = std::mem::replace(&mut self.phase, Phase::Idle) else {
             return Err("speech model is not loaded".to_string());
         };
-        let (worker, response) = roundtrip(worker, request)?;
-        match read(response) {
-            StreamAnswer::Text(text) => {
+        match roundtrip(worker, request) {
+            Ok((worker, response)) => {
                 self.phase = Phase::Live(worker);
-                Ok(text)
+                Ok(response)
             }
-            StreamAnswer::Failed(message) => {
-                self.phase = Phase::Live(worker);
-                Err(message)
-            }
-            StreamAnswer::Broke => Err("speech worker broke the protocol".to_string()),
+            Err(message) => Err(message),
         }
     }
 }

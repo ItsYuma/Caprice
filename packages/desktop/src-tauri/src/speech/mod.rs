@@ -1,4 +1,5 @@
 mod bark;
+mod bark_stream;
 mod buffered;
 mod capture;
 mod contract;
@@ -20,7 +21,7 @@ pub(crate) use woof::ReplyState;
 use std::sync::{Arc, Mutex, MutexGuard};
 
 use capture::Recording;
-use engine::{requirements, EngineKind};
+use engine::requirements;
 use phase::{press, release, Mic, Press, Released};
 use supervisor::Supervisor;
 
@@ -29,22 +30,27 @@ pub(crate) struct SpeechState {
     shared: Arc<SpeechShared>,
 }
 
-struct Held {
-    feed: Option<feed::LiveFeed>,
-    recording: Recording,
+struct SpeechShared {
+    feed: Mutex<Option<feed::Feeder>>,
+    supervisor: Mutex<Supervisor>,
+    mic: Mutex<Mic<Recording>>,
 }
 
-struct SpeechShared {
-    mic: Mutex<Mic<Held>>,
-    supervisor: Mutex<Supervisor>,
+impl Drop for SpeechShared {
+    fn drop(&mut self) {
+        *lock(&self.mic) = Mic::Idle;
+        let feeder = lock(&self.feed).take();
+        drop(feeder);
+    }
 }
 
 impl SpeechState {
     pub(crate) fn new() -> Self {
         Self {
             shared: Arc::new(SpeechShared {
-                mic: Mutex::new(Mic::Idle),
+                feed: Mutex::new(None),
                 supervisor: Mutex::new(Supervisor::new()),
+                mic: Mutex::new(Mic::Idle),
             }),
         }
     }
@@ -58,33 +64,20 @@ pub(crate) fn speech_transcribe(state: &SpeechState, path: String) -> Result<Str
 }
 
 pub(crate) fn speech_listen_start(state: &SpeechState) -> Result<(), String> {
-    let (_model, kind) = requirements()?;
-    let streaming = kind == EngineKind::Parakeet;
-    if streaming {
-        lock(&state.shared.supervisor).warm()?;
-    }
+    let (_, kind) = requirements()?;
     let mut mic = lock(&state.shared.mic);
     match press(std::mem::replace(&mut *mic, Mic::Idle)) {
         Press::Open => match capture::open_input() {
             Ok(recording) => {
-                let live = if streaming {
-                    let samples = Arc::clone(&recording.samples);
-                    let rate = recording.sample_rate;
-                    match feed::spawn(state.clone(), samples, rate) {
-                        Ok(live) => Some(live),
-                        Err(err) => {
-                            drop(recording);
-                            *mic = Mic::Idle;
-                            return Err(err);
-                        }
-                    }
-                } else {
-                    None
-                };
-                *mic = Mic::Hot(Held {
-                    feed: live,
-                    recording,
-                });
+                if kind.streams() {
+                    let feeder = feed::Feeder::start(
+                        &state.shared,
+                        Arc::clone(&recording.samples),
+                        recording.sample_rate,
+                    );
+                    *lock(&state.shared.feed) = Some(feeder);
+                }
+                *mic = Mic::Hot(recording);
                 Ok(())
             }
             Err(err) => {
@@ -92,64 +85,42 @@ pub(crate) fn speech_listen_start(state: &SpeechState) -> Result<(), String> {
                 Err(err)
             }
         },
-        Press::Busy(held) => {
-            *mic = Mic::Hot(held);
+        Press::Busy(recording) => {
+            *mic = Mic::Hot(recording);
             Err("already listening".to_string())
         }
     }
 }
 
 pub(crate) fn speech_listen_stop(state: &SpeechState) -> Result<String, String> {
-    requirements()?;
-    let held = {
+    let (_, kind) = requirements()?;
+    let (samples, sample_rate) = {
         let mut mic = lock(&state.shared.mic);
         match release(std::mem::replace(&mut *mic, Mic::Idle)) {
             Released::Idle => return Err("not listening".to_string()),
-            Released::Captured(held) => held,
+            Released::Captured(recording) => {
+                let Recording {
+                    stream,
+                    samples,
+                    sample_rate,
+                } = recording;
+                drop(stream);
+                (samples, sample_rate)
+            }
         }
     };
-    if held.feed.is_some() {
-        stop_stream(state, held)
-    } else {
-        stop_clip(state, held.recording)
+    let fed = match lock(&state.shared.feed).take() {
+        Some(feeder) => feeder.stop(),
+        None => Ok(()),
+    };
+    if kind.streams() {
+        let text = lock(&state.shared.supervisor).finish();
+        fed?;
+        return text;
     }
-}
-
-fn stop_clip(state: &SpeechState, recording: Recording) -> Result<String, String> {
-    let Recording {
-        stream,
-        samples,
-        sample_rate,
-    } = recording;
-    drop(stream);
+    fed?;
     let audio = lock(&samples).clone();
     lock(&state.shared.supervisor).transcribe(&audio, sample_rate)
-}
-
-fn stop_stream(state: &SpeechState, mut held: Held) -> Result<String, String> {
-    let Some(mut live) = held.feed.take() else {
-        return stop_clip(state, held.recording);
-    };
-    live.join();
-    let Recording {
-        stream,
-        samples,
-        sample_rate,
-    } = held.recording;
-    drop(stream);
-    let audio = lock(&samples).clone();
-    let failure = live.failure();
-    let mut supervisor = lock(&state.shared.supervisor);
-    let flushed = live.flush(&audio, sample_rate, &mut supervisor);
-    let finished = supervisor.finish();
-    drop(supervisor);
-    drop(live);
-    match (failure, flushed, finished) {
-        (Some(err), _, _) => Err(err),
-        (_, Err(err), _) => Err(err),
-        (_, _, Err(err)) => Err(err),
-        (None, Ok(()), Ok(text)) => Ok(text),
-    }
 }
 
 pub(super) fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
