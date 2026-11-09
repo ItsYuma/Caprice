@@ -1,6 +1,6 @@
 # Caprice
 
-Annoying desktop companion. She talks, and later she uses the computer when the host confirms it. Read `CAPRI.md` before changing her voice. Read `MILESTONES.md` before adding a feature past the current milestone.
+Annoying desktop companion. She talks, and she uses the computer when she calls a tool. Read `CAPRI.md` before changing her voice. Read `MILESTONES.md` before adding a feature past the current milestone.
 
 ## Commands
 
@@ -127,6 +127,6 @@ The ONNX variant loads the int8 weights through `transcribe-rs`. The Bark varian
 
 ## League
 
-`league_live` and `league_lcu` are the tools in `skills/host`. The model sees that skill from `## Contract` down, after the voice. A call is the whole reply. The session does not run it until the host allows it, on the box or with yes. Refuse, or no, leaves it unrun. The result is a host line the model answers from.
+`league_live` and `league_lcu` are the tools in `skills/host`. The model sees that skill from `## Contract` down, after the voice. A call is the whole reply, and the session runs it. The result is a host line the model answers from. A turn stops after four calls.
 
 Rust calls `127.0.0.1` only. `league_live` is the Live Client Data API on port 2999. `league_lcu` is the League client API. The port and the token come from the running client: its command line, then its lockfile. On Windows the command line is `LeagueClientUx.exe`, and the lockfile is also checked under the usual Riot folders on `C` through `H`. `CAPRICE_LEAGUE_LOCKFILE` is that lockfile when the install is somewhere else. The token is not shown to the model. Outside the Tauri window both tools say the league client is not available in this window.

@@ -22,9 +22,6 @@ test("the window is the box and hides the conversation", () => {
       pace=""
       step=""
       stepAt={0}
-      ask=""
-      onAllow={() => {}}
-      onRefuse={() => {}}
     />,
   );
 
@@ -59,9 +56,6 @@ test("thinking is the only line while she works", () => {
       pace=""
       step=""
       stepAt={0}
-      ask=""
-      onAllow={() => {}}
-      onRefuse={() => {}}
     />,
   );
 
@@ -86,9 +80,6 @@ test("the box shows where the turn spent time", () => {
       pace="hear 1.4s · reply 400ms"
       step="voice"
       stepAt={0}
-      ask=""
-      onAllow={() => {}}
-      onRefuse={() => {}}
     />,
   );
 
@@ -97,34 +88,6 @@ test("the box shows where the turn spent time", () => {
   expect(html).toContain('id="pace"');
   expect(html).toContain("hear 1.4s · reply 400ms");
   expect(html).not.toContain("hello");
-});
-
-test("a waiting tool sits beside the box and not inside the talk button", () => {
-  const html = renderToStaticMarkup(
-    <CapricePage
-      problem=""
-      hold={undefined}
-      talkPhase="idle"
-      hint=""
-      credit=""
-      pace=""
-      step=""
-      stepAt={0}
-      ask="league_live /liveclientdata/allgamedata"
-      onAllow={() => {}}
-      onRefuse={() => {}}
-    />,
-  );
-
-  const talk = html.indexOf('id="talk"');
-  const talkEnd = html.indexOf("</button>", talk);
-  const allow = html.indexOf('id="allow"');
-
-  expect(html).toContain('id="ask"');
-  expect(html).toContain("league_live /liveclientdata/allgamedata");
-  expect(html).toContain(">Allow<");
-  expect(html).toContain(">Refuse<");
-  expect(allow).toBeGreaterThan(talkEnd);
 });
 
 test("the sine follows the moment being spoken", () => {

@@ -20,11 +20,11 @@ test("capri skill feeds the model from the voice heading", () => {
   expect(persona).toContain("fun");
 });
 
-test("host skill states the confirmation rule", () => {
+test("host skill tells her how to call a tool", () => {
   const contract = contractText(host);
 
   expect(contract.startsWith("## Contract")).toBe(true);
-  expect(contract).toContain("confirm");
+  expect(contract).toContain("four calls");
   expect(contract).toContain("league_live");
   expect(contract).toContain("league_lcu");
   expect(contract).toContain("/liveclientdata/allgamedata");

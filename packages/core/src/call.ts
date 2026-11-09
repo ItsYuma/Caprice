@@ -3,23 +3,6 @@ export type ToolCall = {
   input: string;
 };
 
-export type ConfirmKind = "allow" | "refuse" | "talk";
-
-const allowWords = [
-  "yes",
-  "yeah",
-  "yep",
-  "ok",
-  "okay",
-  "confirm",
-  "allow",
-  "si",
-  "sí",
-  "oui",
-];
-
-const refuseWords = ["no", "nope", "nah", "don't", "dont", "refuse", "non"];
-
 export function readToolCall(text: string): ToolCall | undefined {
   const lines = text
     .replaceAll("\r\n", "\n")
@@ -52,32 +35,6 @@ export function readToolCall(text: string): ToolCall | undefined {
   return { name, input };
 }
 
-export function confirmKind(text: string): ConfirmKind {
-  const word = text.trim().toLowerCase();
-
-  if (listed(allowWords, word)) {
-    return "allow";
-  }
-
-  if (listed(refuseWords, word)) {
-    return "refuse";
-  }
-
-  return "talk";
-}
-
-export function pendingLabel(call: ToolCall): string {
-  const flat = call.input.replaceAll("\n", " ").trim();
-
-  if (flat.length === 0) {
-    return call.name;
-  }
-
-  const shown = flat.length > 72 ? `${flat.slice(0, 72)}…` : flat;
-
-  return `${call.name} ${shown}`;
-}
-
 function isToolName(name: string): boolean {
   if (name.length === 0) {
     return false;
@@ -94,14 +51,4 @@ function isToolName(name: string): boolean {
   }
 
   return true;
-}
-
-function listed(words: readonly string[], word: string): boolean {
-  for (const item of words) {
-    if (item === word) {
-      return true;
-    }
-  }
-
-  return false;
 }

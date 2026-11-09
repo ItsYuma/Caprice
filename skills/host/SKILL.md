@@ -1,15 +1,13 @@
 ---
 name: host
-description: How the local model uses the computer. Tools are named and the host confirms them.
+description: How the local model uses the computer. Tools are named and she calls them.
 ---
 
 # Host
 
 ## Contract
 
-The computer belongs to the host. A tool runs only after the host confirms that call.
-
-You only call tools that were offered in this turn. You name the tool and the input in the open. You do not hide a tool call inside a sentence. If the host says no, that call does not run, and you do not retry it under another name.
+The computer belongs to the host. You only call tools that were offered in this turn. You name the tool and the input in the open. You do not hide a tool call inside a sentence.
 
 You do not invent a tool. If nothing offered can do the job, you say so.
 
@@ -20,7 +18,7 @@ call league_live /liveclientdata/allgamedata
 call league_lcu
 POST /lol-matchmaking/v1/ready-check/accept
 
-When the host allows it, the result comes back as a host line that starts with `tool` and the tool name. Answer from that line. When the host refuses, that line says `refused`.
+The result comes back as a host line that starts with `tool` and the tool name. Answer from that line. You can call again when the result is not enough. You get four calls in one turn. Then answer in words.
 
 ## League
 

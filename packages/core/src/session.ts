@@ -1,4 +1,4 @@
-import { confirmKind, readToolCall, type ToolCall } from "./call.ts";
+import { readToolCall } from "./call.ts";
 import { ok, type Result } from "./result.ts";
 
 export type Who = "host" | "capri";
@@ -30,13 +30,11 @@ export type Tool = {
 export type Session = {
   lines: () => readonly Line[];
   tools: () => readonly Tool[];
-  pending: () => ToolCall | undefined;
   say: (hostText: string) => Promise<Result<Line>>;
-  allow: () => Promise<Result<Line>>;
-  refuse: () => Promise<Result<Line>>;
 };
 
 export const threadLimit = 20;
+export const toolTurnLimit = 4;
 
 export function openSession(
   persona: string,
@@ -46,7 +44,6 @@ export function openSession(
 ): Session {
   const lines: Line[] = [];
   const offered = tools.slice();
-  let pending: ToolCall | undefined;
   let working = false;
 
   for (const line of remembered) {
@@ -55,7 +52,7 @@ export function openSession(
 
   trimThread(lines);
 
-  async function speakReply(): Promise<Result<Line>> {
+  async function speakReply(callsLeft: number): Promise<Result<Line>> {
     const reply = await model.reply({
       persona,
       lines: lines.slice(),
@@ -67,14 +64,31 @@ export function openSession(
     }
 
     const call = readToolCall(reply.value.text);
+    const tool = call === undefined ? undefined : findTool(offered, call.name);
 
-    if (call !== undefined && findTool(offered, call.name) !== undefined) {
-      pending = { name: call.name, input: call.input };
+    if (call !== undefined && tool !== undefined) {
+      if (callsLeft === 0) {
+        return fail("too many tool calls");
+      }
 
-      return ok({ who: "capri", text: "" });
+      let result: string;
+
+      try {
+        result = await tool.run(call.input);
+      } catch (caught) {
+        if (caught instanceof Error) {
+          return fail(caught.message);
+        }
+
+        return fail("the tool failed");
+      }
+
+      lines.push({ who: "host", text: `tool ${call.name}\n${result}` });
+      trimThread(lines);
+
+      return speakReply(callsLeft - 1);
     }
 
-    pending = undefined;
     const capriLine: Line = { who: "capri", text: reply.value.text };
     lines.push(capriLine);
     trimThread(lines);
@@ -82,61 +96,9 @@ export function openSession(
     return ok(capriLine);
   }
 
-  async function perform(call: ToolCall): Promise<Result<Line>> {
-    const tool = findTool(offered, call.name);
-
-    if (tool === undefined) {
-      return fail("no such tool");
-    }
-
-    let result: string;
-
-    try {
-      result = await tool.run(call.input);
-    } catch (caught) {
-      if (caught instanceof Error) {
-        return fail(caught.message);
-      }
-
-      return fail("the tool failed");
-    }
-
-    pending = undefined;
-    lines.push({ who: "host", text: `tool ${call.name}\n${result}` });
-    trimThread(lines);
-
-    return speakReply();
-  }
-
-  async function turn(hostText: string): Promise<Result<Line>> {
-    const waiting = pending;
-    lines.push({ who: "host", text: hostText });
-    trimThread(lines);
-
-    if (waiting !== undefined && confirmKind(hostText) === "allow") {
-      return perform(waiting);
-    }
-
-    if (waiting !== undefined && confirmKind(hostText) === "refuse") {
-      pending = undefined;
-      lines.push({ who: "host", text: `tool ${waiting.name}\nrefused` });
-      trimThread(lines);
-
-      return speakReply();
-    }
-
-    pending = undefined;
-
-    return speakReply();
-  }
-
   return {
     lines: () => lines.slice(),
     tools: () => offered.slice(),
-    pending: () =>
-      pending === undefined
-        ? undefined
-        : { name: pending.name, input: pending.input },
     async say(hostText: string) {
       if (working) {
         return fail("still working");
@@ -145,49 +107,10 @@ export function openSession(
       working = true;
 
       try {
-        return await turn(hostText);
-      } finally {
-        working = false;
-      }
-    },
-    async allow() {
-      if (working) {
-        return fail("still working");
-      }
-
-      const waiting = pending;
-
-      if (waiting === undefined) {
-        return fail("nothing to confirm");
-      }
-
-      working = true;
-
-      try {
-        return await perform(waiting);
-      } finally {
-        working = false;
-      }
-    },
-    async refuse() {
-      if (working) {
-        return fail("still working");
-      }
-
-      const waiting = pending;
-
-      if (waiting === undefined) {
-        return fail("nothing to confirm");
-      }
-
-      working = true;
-
-      try {
-        pending = undefined;
-        lines.push({ who: "host", text: `tool ${waiting.name}\nrefused` });
+        lines.push({ who: "host", text: hostText });
         trimThread(lines);
 
-        return await speakReply();
+        return await speakReply(toolTurnLimit);
       } finally {
         working = false;
       }

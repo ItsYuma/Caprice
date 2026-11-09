@@ -27,9 +27,6 @@ export function App() {
       pace={caprice.pace}
       step={caprice.step}
       stepAt={caprice.stepAt}
-      ask={caprice.ask}
-      onAllow={caprice.allow}
-      onRefuse={caprice.refuse}
     />
   );
 }

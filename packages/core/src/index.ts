@@ -11,7 +11,7 @@ export { ok, tryCatch } from "./result.ts";
 
 export type { Result } from "./result.ts";
 
-export { pendingLabel, readToolCall } from "./call.ts";
+export { readToolCall } from "./call.ts";
 
 export type { ToolCall } from "./call.ts";
 

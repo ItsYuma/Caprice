@@ -5,6 +5,7 @@ import {
   openSession,
   stubModel,
   threadLimit,
+  toolTurnLimit,
   type Line,
   type Model,
   type Tool,
@@ -94,10 +95,10 @@ test("stub model quotes the host", async () => {
   expect(line.value.text).toContain("hello");
 });
 
-test("a tool call waits and does not run until the host allows it", async () => {
+test("a tool call runs and the answer after the result is the reply", async () => {
   const seen: string[] = [];
   const turns: string[] = [];
-  const replies = ["call note\nhi", "done"];
+  const replies = ["call note\nhi", "call note\nagain", "done"];
 
   const model: Model = {
     async reply(turn) {
@@ -118,29 +119,27 @@ test("a tool call waits and does not run until the host allows it", async () => 
     },
   ]);
 
-  const asked = await session.say("look");
+  const answered = await session.say("look");
 
-  expect(asked).toEqual({ ok: true, value: { who: "capri", text: "" } });
-  expect(session.pending()).toEqual({ name: "note", input: "hi" });
-  expect(session.lines()).toEqual([{ who: "host", text: "look" }]);
-  expect(seen).toEqual([]);
-
-  const answered = await session.allow();
-
-  expect(seen).toEqual(["hi"]);
+  expect(seen).toEqual(["hi", "again"]);
   expect(answered).toEqual({ ok: true, value: { who: "capri", text: "done" } });
-  expect(session.pending()).toBeUndefined();
   expect(session.lines()).toEqual([
     { who: "host", text: "look" },
     { who: "host", text: "tool note\nsaw hi" },
+    { who: "host", text: "tool note\nsaw again" },
     { who: "capri", text: "done" },
   ]);
   expect(turns[1]).toContain("tool note\nsaw hi");
+  expect(turns[2]).toContain("tool note\nsaw again");
 });
 
-test("refuse and a later question do not run the tool", async () => {
+test("a turn stops after the tool limit", async () => {
   let runs = 0;
-  const replies = ["call note\nhi", "left it", "call note\nhi", "weather"];
+  const replies: string[] = [];
+
+  for (let index = 0; index < toolTurnLimit + 1; index += 1) {
+    replies.push("call note hi");
+  }
 
   const model: Model = {
     async reply() {
@@ -159,69 +158,46 @@ test("refuse and a later question do not run the tool", async () => {
     },
   ]);
 
-  await session.say("look");
-  const refused = await session.refuse();
+  const line = await session.say("look");
 
-  expect(runs).toBe(0);
-  expect(refused).toEqual({
-    ok: true,
-    value: { who: "capri", text: "left it" },
-  });
-  expect(session.lines().map((line) => line.text)).toContain(
-    "tool note\nrefused",
-  );
+  expect(runs).toBe(toolTurnLimit);
+  expect(line.ok).toBe(false);
 
-  await session.say("look");
-  const moved = await session.say("what's the score");
-
-  expect(runs).toBe(0);
-  expect(moved.ok).toBe(true);
-
-  if (!moved.ok) {
+  if (line.ok) {
     return;
   }
 
-  expect(moved.value.text).toBe("weather");
+  expect(line.error.message).toBe("too many tool calls");
 });
 
-test("yes runs the waiting tool and no does not", async () => {
-  let runs = 0;
-  const replies = ["call note\nhi", "ran it", "call note\nhi", "left it"];
-
-  const model: Model = {
-    async reply() {
-      return ok({ text: replies.shift() ?? "empty" });
-    },
-  };
-
-  const session = openSession("p", model, [
+test("a tool that throws fails the turn", async () => {
+  const session = openSession(
+    "p",
     {
-      name: "note",
-      async run() {
-        runs += 1;
-
-        return "ran";
+      async reply() {
+        return ok({ text: "call note hi" });
       },
     },
-  ]);
+    [
+      {
+        name: "note",
+        async run() {
+          throw new Error("note broke");
+        },
+      },
+    ],
+  );
 
-  await session.say("look");
-  const allowed = await session.say("yes");
+  const line = await session.say("look");
 
-  expect(runs).toBe(1);
-  expect(allowed).toEqual({
-    ok: true,
-    value: { who: "capri", text: "ran it" },
-  });
+  expect(line.ok).toBe(false);
 
-  await session.say("look");
-  const refused = await session.say("no");
+  if (line.ok) {
+    return;
+  }
 
-  expect(runs).toBe(1);
-  expect(refused).toEqual({
-    ok: true,
-    value: { who: "capri", text: "left it" },
-  });
+  expect(line.error.message).toBe("note broke");
+  expect(session.lines()).toEqual([{ who: "host", text: "look" }]);
 });
 
 test("a call for an unknown tool is spoken", async () => {
@@ -241,18 +217,4 @@ test("a call for an unknown tool is spoken", async () => {
     ok: true,
     value: { who: "capri", text: "call me later" },
   });
-  expect(session.pending()).toBeUndefined();
-});
-
-test("allow with nothing waiting is an error", async () => {
-  const session = openSession("p", stubModel(), []);
-  const allowed = await session.allow();
-
-  expect(allowed.ok).toBe(false);
-
-  if (allowed.ok) {
-    return;
-  }
-
-  expect(allowed.error.message).toBe("nothing to confirm");
 });

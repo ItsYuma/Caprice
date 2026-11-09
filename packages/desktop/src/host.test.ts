@@ -6,9 +6,11 @@ import { listenAndSay, sayAndSpeak, type TurnPace } from "./host.ts";
 import type { PaceMark, PaceNote } from "./pace.ts";
 
 test("a tool call is not spoken", async () => {
+  const replies = ["call note\nhi", "noted"];
+
   const model: Model = {
     async reply() {
-      return ok({ text: "call note\nhi" });
+      return ok({ text: replies.shift() ?? "empty" });
     },
   };
 
@@ -24,9 +26,8 @@ test("a tool call is not spoken", async () => {
   const recording = recordingSpeaker();
   const line = await sayAndSpeak(session, recording.speaker, "look");
 
-  expect(line).toEqual({ ok: true, value: { who: "capri", text: "" } });
-  expect(recording.spoken()).toEqual([]);
-  expect(session.pending()).toEqual({ name: "note", input: "hi" });
+  expect(line).toEqual({ ok: true, value: { who: "capri", text: "noted" } });
+  expect(recording.spoken()).toEqual(["noted"]);
 });
 
 test("sayAndSpeak speaks the capri line", async () => {
