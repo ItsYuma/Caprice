@@ -5,6 +5,7 @@ import {
   pageCanSpeak,
   pageListener,
   readSpeechCredit,
+  speechHint,
   pageSpeaker,
   postSpeech,
   shellSpeaker,
@@ -266,6 +267,13 @@ test("speech credit is empty outside the shell and kept from the command", async
       throw new Error("unknown reply engine: bark");
     }),
   ).resolves.toBe("");
+});
+
+test("the shell hint says to drag the box", () => {
+  expect(speechHint(true)).toBe(
+    "Hold Alt+Space or Ctrl+Space. Release to send. Drag the box to move it.",
+  );
+  expect(speechHint(false)).toBe(modelUnavailable);
 });
 
 const missingModel: TtsEnv = {
