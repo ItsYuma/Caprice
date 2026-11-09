@@ -86,11 +86,11 @@ export function useSession(): CapriceSession {
   }, []);
 
   useEffect(() => {
-    const listener = paceListener(voice.listener, note, performance.now);
+    const listener = paceListener(voice.listener, note, readClock);
 
     const pace: TurnPace = {
       note: note.current,
-      now: performance.now,
+      now: readClock,
       watchVoice: voice.watchVoice,
     };
 
@@ -155,6 +155,10 @@ export function useSession(): CapriceSession {
     step,
     stepAt,
   };
+}
+
+function readClock(): number {
+  return performance.now();
 }
 
 function remember(current: Session): void {

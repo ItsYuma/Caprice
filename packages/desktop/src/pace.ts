@@ -47,8 +47,12 @@ export function paceListener(
   return {
     release() {
       if (open) {
-        releasedAt = now();
-        note.current.begin("hear");
+        try {
+          releasedAt = now();
+          note.current.begin("hear");
+        } catch {
+          releasedAt = 0;
+        }
       }
 
       listener.release();

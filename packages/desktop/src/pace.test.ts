@@ -23,6 +23,39 @@ test("pace text names each wait", () => {
   ).toBe("hear 1.4s · reply 400ms · voice 8.1s");
 });
 
+test("a broken clock still lets the hold finish", async () => {
+  let finished = false;
+
+  const listener = paceListener(
+    captureListener({
+      async begin() {},
+      async finish() {
+        finished = true;
+
+        return "hello";
+      },
+    }),
+    {
+      current: {
+        begin() {
+          throw new Error("clock");
+        },
+        end() {},
+      },
+    },
+    () => {
+      throw new Error("clock");
+    },
+  );
+
+  const pending = listener.listen();
+
+  listener.release();
+  await pending;
+
+  expect(finished).toBe(true);
+});
+
 test("hear starts when the hold releases", async () => {
   let time = 100;
   const marks: PaceMark[] = [];
