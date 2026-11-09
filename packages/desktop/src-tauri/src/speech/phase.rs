@@ -1,11 +1,17 @@
 use super::engine::EngineKind;
 use super::protocol::{Request, Response};
 
+pub(super) enum Follow {
+    Clip,
+    Load,
+}
+
 pub(super) struct Job {
     pub pcm: String,
     pub rate: u32,
     pub model: String,
     pub engine: EngineKind,
+    pub follow: Follow,
 }
 
 pub(super) enum Phase<W> {
@@ -14,7 +20,11 @@ pub(super) enum Phase<W> {
 }
 
 enum Wait {
-    Load { pcm: String, rate: u32 },
+    Load {
+        pcm: String,
+        rate: u32,
+        follow: Follow,
+    },
     Audio,
 }
 
@@ -65,13 +75,19 @@ pub(super) fn release<R>(mic: Mic<R>) -> Released<R> {
 fn begin<W>(phase: Phase<W>, job: Job) -> Drive<W> {
     match phase {
         Phase::Idle => Drive::Spawn { job },
-        Phase::Live(worker) => Drive::Send {
-            request: Request::Transcribe {
-                rate: job.rate,
-                pcm: job.pcm,
+        Phase::Live(worker) => match job.follow {
+            Follow::Load => Drive::Done {
+                phase: Phase::Live(worker),
+                result: Ok(String::new()),
             },
-            worker,
-            wait: Wait::Audio,
+            Follow::Clip => Drive::Send {
+                request: Request::Transcribe {
+                    rate: job.rate,
+                    pcm: job.pcm,
+                },
+                worker,
+                wait: Wait::Audio,
+            },
         },
     }
 }
@@ -82,6 +98,7 @@ fn spawned<W>(worker: W, job: Job) -> Drive<W> {
         rate,
         model,
         engine,
+        follow,
     } = job;
     Drive::Send {
         request: Request::Load {
@@ -89,13 +106,30 @@ fn spawned<W>(worker: W, job: Job) -> Drive<W> {
             engine: engine.name().to_string(),
         },
         worker,
-        wait: Wait::Load { pcm, rate },
+        wait: Wait::Load { pcm, rate, follow },
     }
 }
 
 fn replied<W>(worker: W, wait: Wait, response: Response) -> Drive<W> {
     match (wait, response) {
-        (Wait::Load { pcm, rate }, Response::Ready) => Drive::Send {
+        (
+            Wait::Load {
+                follow: Follow::Load,
+                ..
+            },
+            Response::Ready,
+        ) => Drive::Done {
+            phase: Phase::Live(worker),
+            result: Ok(String::new()),
+        },
+        (
+            Wait::Load {
+                pcm,
+                rate,
+                follow: Follow::Clip,
+            },
+            Response::Ready,
+        ) => Drive::Send {
             request: Request::Transcribe { rate, pcm },
             worker,
             wait: Wait::Audio,
@@ -103,10 +137,6 @@ fn replied<W>(worker: W, wait: Wait, response: Response) -> Drive<W> {
         (Wait::Load { .. }, Response::Error { message }) => Drive::Done {
             phase: Phase::Idle,
             result: Err(message),
-        },
-        (Wait::Load { .. }, Response::Text { .. }) => Drive::Done {
-            phase: Phase::Idle,
-            result: Err("speech worker broke the protocol".to_string()),
         },
         (Wait::Audio, Response::Text { text }) => Drive::Done {
             phase: Phase::Live(worker),
@@ -116,7 +146,8 @@ fn replied<W>(worker: W, wait: Wait, response: Response) -> Drive<W> {
             phase: Phase::Live(worker),
             result: Err(message),
         },
-        (Wait::Audio, Response::Ready) => Drive::Done {
+        (Wait::Load { .. }, Response::Text { .. } | Response::Partial { .. })
+        | (Wait::Audio, Response::Ready | Response::Partial { .. }) => Drive::Done {
             phase: Phase::Idle,
             result: Err("speech worker broke the protocol".to_string()),
         },

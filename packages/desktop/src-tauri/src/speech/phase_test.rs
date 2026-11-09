@@ -1,6 +1,6 @@
 use super::super::engine::EngineKind;
 use super::super::protocol::{Request, Response};
-use super::{begin, drive, press, release, Job, Mic, Phase, Press, Released};
+use super::{begin, drive, press, release, Follow, Job, Mic, Phase, Press, Released};
 
 struct Token(u8);
 
@@ -10,6 +10,7 @@ fn job(pcm: &str) -> Job {
         rate: 16_000,
         model: "/models/speech".into(),
         engine: EngineKind::Onnx,
+        follow: Follow::Clip,
     }
 }
 
@@ -38,6 +39,7 @@ fn an_idle_worker_loads_once_and_then_stays_live() {
                     },
                 ))
             }
+            Request::Feed { .. } | Request::Finish => panic!("streamed"),
         },
     );
 
@@ -65,7 +67,9 @@ fn an_idle_worker_loads_once_and_then_stays_live() {
                     },
                 ))
             }
-            Request::Load { .. } => panic!("reloaded"),
+            Request::Load { .. } | Request::Feed { .. } | Request::Finish => {
+                panic!("reloaded")
+            }
         },
     );
 
@@ -87,7 +91,9 @@ fn a_failed_load_drops_the_worker_and_a_failed_clip_keeps_it() {
                     message: "missing weights".into(),
                 },
             )),
-            Request::Transcribe { .. } => panic!("transcribed after a failed load"),
+            Request::Transcribe { .. } | Request::Feed { .. } | Request::Finish => {
+                panic!("transcribed after a failed load")
+            }
         },
     );
     assert!(matches!(phase, Phase::Idle));
@@ -137,4 +143,49 @@ fn the_microphone_is_either_idle_or_hot() {
 fn begin_on_a_live_worker_does_not_spawn() {
     let step = begin(Phase::Live(Token(9)), job("pcm"));
     assert!(matches!(step, super::Drive::Send { .. }));
+}
+
+#[test]
+fn loading_stops_when_the_worker_is_ready() {
+    let mut loading = job("");
+    loading.follow = Follow::Load;
+    let (phase, result) = drive(
+        Phase::Idle,
+        loading,
+        || Ok(Token(1)),
+        |worker, request| match request {
+            Request::Load { engine, .. } => {
+                assert_eq!(engine, "onnx");
+                Ok((worker, Response::Ready))
+            }
+            Request::Transcribe { .. } | Request::Feed { .. } | Request::Finish => {
+                panic!("followed the load")
+            }
+        },
+    );
+    assert_eq!(result.unwrap(), "");
+    assert!(matches!(phase, Phase::Live(Token(1))));
+
+    let mut again = job("");
+    again.follow = Follow::Load;
+    let (phase, result) = drive(
+        phase,
+        again,
+        || panic!("spawned"),
+        |_worker, _request| panic!("sent"),
+    );
+    assert_eq!(result.unwrap(), "");
+    assert!(matches!(phase, Phase::Live(Token(1))));
+}
+
+#[test]
+fn a_partial_during_a_clip_drops_the_worker() {
+    let (phase, result) = drive(
+        Phase::Live(Token(1)),
+        job("pcm"),
+        || panic!("spawned"),
+        |worker, _request| Ok((worker, Response::Partial { text: "no".into() })),
+    );
+    assert!(matches!(phase, Phase::Idle));
+    assert_eq!(result.unwrap_err(), "speech worker broke the protocol");
 }
