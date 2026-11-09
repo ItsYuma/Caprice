@@ -151,7 +151,7 @@ async function choices(
       process.env.CAPRICE_MODEL_API_KEY ?? "",
       saved.modelApiKey,
     ),
-    sttEngine: "bark",
+    sttEngine: "bark-stream",
     sttModel: barkDir(platform, data),
     ttsEngine: "woof",
     ttsWoof: woofDir(platform, data),

@@ -16,7 +16,8 @@ pub(super) enum EngineKind {
 impl EngineKind {
     pub(super) fn parse(raw: &str) -> Result<Self, String> {
         match raw.trim() {
-            "" | "onnx" => Ok(Self::Onnx),
+            "" => Ok(Self::BarkStream),
+            "onnx" => Ok(Self::Onnx),
             "bark" => Ok(Self::Bark),
             "bark-stream" => Ok(Self::BarkStream),
             "parakeet" => Ok(Self::Parakeet),
