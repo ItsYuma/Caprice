@@ -34,6 +34,27 @@ fn the_worker_reports_a_missing_model_and_stays_up() {
         }
     );
 
+    send(&mut input_write, &Request::Finish);
+    assert_eq!(
+        recv(&mut output),
+        Response::Error {
+            message: "speech model is not loaded".into(),
+        }
+    );
+
+    send(
+        &mut input_write,
+        &Request::Feed {
+            pcm: encode_pcm(&[0.0]),
+        },
+    );
+    assert_eq!(
+        recv(&mut output),
+        Response::Error {
+            message: "speech model is not loaded".into(),
+        }
+    );
+
     drop(input_write);
     assert_eq!(handle.join().expect("worker"), 0);
 }

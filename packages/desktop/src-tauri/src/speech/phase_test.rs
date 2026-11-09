@@ -1,6 +1,9 @@
 use super::super::engine::EngineKind;
 use super::super::protocol::{Request, Response};
-use super::{begin, drive, press, release, Job, Mic, Phase, Press, Released};
+use super::{
+    begin, drive, final_reply, partial_reply, press, release, warm, Job, Mic, Phase, Press,
+    Released, StreamAnswer,
+};
 
 struct Token(u8);
 
@@ -38,6 +41,7 @@ fn an_idle_worker_loads_once_and_then_stays_live() {
                     },
                 ))
             }
+            Request::Feed { .. } | Request::Finish => panic!("streamed"),
         },
     );
 
@@ -66,6 +70,7 @@ fn an_idle_worker_loads_once_and_then_stays_live() {
                 ))
             }
             Request::Load { .. } => panic!("reloaded"),
+            Request::Feed { .. } | Request::Finish => panic!("streamed"),
         },
     );
 
@@ -87,7 +92,9 @@ fn a_failed_load_drops_the_worker_and_a_failed_clip_keeps_it() {
                     message: "missing weights".into(),
                 },
             )),
-            Request::Transcribe { .. } => panic!("transcribed after a failed load"),
+            Request::Transcribe { .. } | Request::Feed { .. } | Request::Finish => {
+                panic!("transcribed after a failed load")
+            }
         },
     );
     assert!(matches!(phase, Phase::Idle));
@@ -137,4 +144,81 @@ fn the_microphone_is_either_idle_or_hot() {
 fn begin_on_a_live_worker_does_not_spawn() {
     let step = begin(Phase::Live(Token(9)), job("pcm"));
     assert!(matches!(step, super::Drive::Send { .. }));
+}
+
+#[test]
+fn warm_loads_a_parakeet_worker_once() {
+    let (phase, result) = warm(
+        Phase::Idle,
+        "/models/speech".into(),
+        EngineKind::Parakeet,
+        || Ok(Token(1)),
+        |worker, request| match request {
+            Request::Load { model, engine } => {
+                assert_eq!(model, "/models/speech");
+                assert_eq!(engine, "parakeet");
+                Ok((worker, Response::Ready))
+            }
+            Request::Transcribe { .. } | Request::Feed { .. } | Request::Finish => {
+                panic!("streamed during load")
+            }
+        },
+    );
+    assert!(result.is_ok());
+    let Phase::Live(worker) = phase else {
+        panic!("worker dropped");
+    };
+
+    let (phase, result) = warm(
+        Phase::Live(worker),
+        "/other".into(),
+        EngineKind::Onnx,
+        || panic!("spawned"),
+        |_worker, _request| panic!("sent"),
+    );
+    assert!(result.is_ok());
+    assert!(matches!(phase, Phase::Live(Token(1))));
+
+    let (phase, result) = warm(
+        Phase::Idle,
+        "/models/speech".into(),
+        EngineKind::Parakeet,
+        || Ok(Token(2)),
+        |worker, _request| {
+            Ok((
+                worker,
+                Response::Error {
+                    message: "missing weights".into(),
+                },
+            ))
+        },
+    );
+    assert!(matches!(phase, Phase::Idle));
+    assert_eq!(result.unwrap_err(), "missing weights");
+}
+
+#[test]
+fn feed_reads_partial_and_finish_reads_text() {
+    assert!(matches!(
+        partial_reply(Response::Partial { text: "hel".into() }),
+        StreamAnswer::Text(text) if text == "hel"
+    ));
+    assert!(matches!(
+        partial_reply(Response::Text { text: "hel".into() }),
+        StreamAnswer::Broke
+    ));
+    assert!(matches!(
+        final_reply(Response::Text { text: "hello".into() }),
+        StreamAnswer::Text(text) if text == "hello"
+    ));
+    assert!(matches!(
+        final_reply(Response::Partial { text: "hel".into() }),
+        StreamAnswer::Broke
+    ));
+    assert!(matches!(
+        partial_reply(Response::Error {
+            message: "empty".into(),
+        }),
+        StreamAnswer::Failed(message) if message == "empty"
+    ));
 }

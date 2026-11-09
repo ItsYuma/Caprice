@@ -1,4 +1,4 @@
-use super::{decode_wav, resample_linear};
+use super::{decode_wav, fresh_samples, resample_linear, stable_resample_len};
 
 fn encode_wav(sample_rate: u32, samples: &[f32]) -> Vec<u8> {
     let data_len = samples.len() * 2;
@@ -107,4 +107,47 @@ fn wav_encodes_pcm16_mono() {
         96_000
     );
     assert_eq!(u32::from_le_bytes(empty[40..44].try_into().unwrap()), 0);
+}
+
+#[test]
+fn stable_prefix_matches_after_the_buffer_grows() {
+    let raw: Vec<f32> = (0..4_800).map(|index| (index as f32) / 4_800.0).collect();
+    let short = &raw[..1_200];
+    let short_full = resample_linear(short, 48_000, 16_000);
+    let long_full = resample_linear(&raw, 48_000, 16_000);
+    let stable = stable_resample_len(short.len(), 48_000, 16_000);
+    assert_eq!(stable, short_full.len());
+    assert_eq!(&short_full[..stable], &long_full[..stable]);
+
+    let first = fresh_samples(short, 48_000, 16_000, 0, false);
+    let second = fresh_samples(&raw, 48_000, 16_000, first.sent, true);
+    assert_eq!(first.sent, stable);
+    let mut joined = first.samples;
+    joined.extend_from_slice(&second.samples);
+    assert_eq!(joined, long_full);
+
+    let wide: Vec<f32> = (0..4_000).map(|index| (index as f32) / 4_000.0).collect();
+    let narrow = &wide[..1_000];
+    let narrow_full = resample_linear(narrow, 8_000, 16_000);
+    let wide_full = resample_linear(&wide, 8_000, 16_000);
+    let held = stable_resample_len(narrow.len(), 8_000, 16_000);
+    assert!(held < narrow_full.len());
+    assert_eq!(&narrow_full[..held], &wide_full[..held]);
+    assert!(narrow_full[held..]
+        .iter()
+        .zip(wide_full[held..].iter())
+        .any(|(before, after)| (before - after).abs() > 0.000_01));
+    let head = fresh_samples(narrow, 8_000, 16_000, 0, false);
+    let tail = fresh_samples(&wide, 8_000, 16_000, head.sent, true);
+    assert_eq!(head.sent, held);
+    let mut streamed = head.samples;
+    streamed.extend_from_slice(&tail.samples);
+    assert_eq!(streamed, wide_full);
+
+    let same = fresh_samples(&[0.1, 0.2, 0.3], 16_000, 16_000, 1, false);
+    assert_eq!(same.samples, vec![0.2, 0.3]);
+    assert_eq!(same.sent, 3);
+    assert!(fresh_samples(&[], 48_000, 16_000, 0, true)
+        .samples
+        .is_empty());
 }

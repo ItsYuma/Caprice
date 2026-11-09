@@ -3,11 +3,13 @@ use std::path::Path;
 use super::bark;
 use super::contract::Transcriber;
 use super::parakeet;
+use super::unified;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum EngineKind {
     Onnx,
     Bark,
+    Parakeet,
 }
 
 impl EngineKind {
@@ -15,6 +17,7 @@ impl EngineKind {
         match raw.trim() {
             "" | "onnx" => Ok(Self::Onnx),
             "bark" => Ok(Self::Bark),
+            "parakeet" => Ok(Self::Parakeet),
             other => Err(format!("unknown speech engine: {other}")),
         }
     }
@@ -23,6 +26,7 @@ impl EngineKind {
         match self {
             Self::Onnx => "onnx",
             Self::Bark => "bark",
+            Self::Parakeet => "parakeet",
         }
     }
 }
@@ -30,6 +34,7 @@ impl EngineKind {
 pub(super) enum Engine {
     Onnx(parakeet::ParakeetEngine),
     Bark(Box<bark::BarkEngine>),
+    Parakeet(unified::UnifiedEngine),
 }
 
 impl Transcriber for Engine {
@@ -37,6 +42,23 @@ impl Transcriber for Engine {
         match self {
             Self::Onnx(engine) => engine.transcribe(samples, sample_rate),
             Self::Bark(engine) => engine.transcribe(samples, sample_rate),
+            Self::Parakeet(engine) => engine.transcribe(samples, sample_rate),
+        }
+    }
+}
+
+impl Engine {
+    pub(super) fn feed(&mut self, samples: &[f32]) -> Result<String, String> {
+        match self {
+            Self::Parakeet(engine) => engine.feed(samples),
+            Self::Onnx(_) | Self::Bark(_) => Err("speech engine does not stream".to_string()),
+        }
+    }
+
+    pub(super) fn finish(&mut self) -> Result<String, String> {
+        match self {
+            Self::Parakeet(engine) => engine.finish(),
+            Self::Onnx(_) | Self::Bark(_) => Err("speech engine does not stream".to_string()),
         }
     }
 }
@@ -46,6 +68,7 @@ impl Engine {
         match kind {
             EngineKind::Onnx => Ok(Self::Onnx(parakeet::load_at(model)?)),
             EngineKind::Bark => Ok(Self::Bark(Box::new(bark::load_at(model)?))),
+            EngineKind::Parakeet => Ok(Self::Parakeet(unified::load_at(model)?)),
         }
     }
 }

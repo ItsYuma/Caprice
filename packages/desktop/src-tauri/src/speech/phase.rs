@@ -120,6 +120,65 @@ fn replied<W>(worker: W, wait: Wait, response: Response) -> Drive<W> {
             phase: Phase::Idle,
             result: Err("speech worker broke the protocol".to_string()),
         },
+        (Wait::Load { .. }, Response::Partial { .. }) | (Wait::Audio, Response::Partial { .. }) => {
+            Drive::Done {
+                phase: Phase::Idle,
+                result: Err("speech worker broke the protocol".to_string()),
+            }
+        }
+    }
+}
+
+pub(super) enum StreamAnswer {
+    Text(String),
+    Failed(String),
+    Broke,
+}
+
+pub(super) fn partial_reply(response: Response) -> StreamAnswer {
+    match response {
+        Response::Partial { text } => StreamAnswer::Text(text),
+        Response::Error { message } => StreamAnswer::Failed(message),
+        Response::Ready | Response::Text { .. } => StreamAnswer::Broke,
+    }
+}
+
+pub(super) fn final_reply(response: Response) -> StreamAnswer {
+    match response {
+        Response::Text { text } => StreamAnswer::Text(text),
+        Response::Error { message } => StreamAnswer::Failed(message),
+        Response::Ready | Response::Partial { .. } => StreamAnswer::Broke,
+    }
+}
+
+pub(super) fn warm<W>(
+    phase: Phase<W>,
+    model: String,
+    engine: EngineKind,
+    mut spawn: impl FnMut() -> Result<W, String>,
+    mut roundtrip: impl FnMut(W, Request) -> Result<(W, Response), String>,
+) -> (Phase<W>, Result<(), String>) {
+    let Phase::Idle = phase else {
+        return (phase, Ok(()));
+    };
+    let worker = match spawn() {
+        Ok(worker) => worker,
+        Err(message) => return (Phase::Idle, Err(message)),
+    };
+    match roundtrip(
+        worker,
+        Request::Load {
+            model,
+            engine: engine.name().to_string(),
+        },
+    ) {
+        Ok((worker, Response::Ready)) => (Phase::Live(worker), Ok(())),
+        Ok((_, Response::Error { message })) => (Phase::Idle, Err(message)),
+        Ok(_) => (
+            Phase::Idle,
+            Err("speech worker broke the protocol".to_string()),
+        ),
+        Err(message) => (Phase::Idle, Err(message)),
     }
 }
 

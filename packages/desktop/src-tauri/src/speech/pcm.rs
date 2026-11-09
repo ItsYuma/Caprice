@@ -1,3 +1,63 @@
+pub(super) struct Fresh {
+    pub samples: Vec<f32>,
+    pub sent: usize,
+}
+
+pub(super) fn stable_resample_len(raw_len: usize, from_rate: u32, to_rate: u32) -> usize {
+    if raw_len == 0 || from_rate == 0 || to_rate == 0 {
+        return 0;
+    }
+    if from_rate == to_rate {
+        return raw_len;
+    }
+    if raw_len < 2 {
+        return 0;
+    }
+    let full = (raw_len as u64).saturating_mul(u64::from(to_rate)) / u64::from(from_rate);
+    let last = raw_len - 1;
+    let mut count = 0usize;
+    for index in 0..full as usize {
+        let position = index as f64 * f64::from(from_rate) / f64::from(to_rate);
+        let left = position.floor() as usize;
+        if left + 1 >= last {
+            break;
+        }
+        count = index + 1;
+    }
+    count
+}
+
+pub(super) fn fresh_samples(
+    raw: &[f32],
+    from_rate: u32,
+    to_rate: u32,
+    sent: usize,
+    flush: bool,
+) -> Fresh {
+    if raw.is_empty() || from_rate == 0 || to_rate == 0 {
+        return Fresh {
+            samples: Vec::new(),
+            sent,
+        };
+    }
+    let resampled = resample_linear(raw, from_rate, to_rate);
+    let end = if flush {
+        resampled.len()
+    } else {
+        stable_resample_len(raw.len(), from_rate, to_rate).min(resampled.len())
+    };
+    if sent >= end {
+        return Fresh {
+            samples: Vec::new(),
+            sent,
+        };
+    }
+    Fresh {
+        samples: resampled[sent..end].to_vec(),
+        sent: end,
+    }
+}
+
 pub(super) fn resample_linear(samples: &[f32], from_rate: u32, to_rate: u32) -> Vec<f32> {
     if samples.is_empty() || from_rate == 0 || from_rate == to_rate {
         return samples.to_vec();

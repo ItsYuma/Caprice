@@ -3,7 +3,7 @@ use std::process::{Child, ChildStdin, Command, Stdio};
 
 use super::engine::requirements;
 use super::pcm::resample_linear;
-use super::phase::{drive, Job, Phase};
+use super::phase::{drive, final_reply, partial_reply, warm, Job, Phase, StreamAnswer};
 use super::protocol::{encode_pcm, Request, Response};
 use super::worker::FLAG;
 
@@ -51,6 +51,52 @@ impl Supervisor {
         let (phase, result) = drive(phase, job, spawn, roundtrip);
         self.phase = phase;
         result
+    }
+
+    pub(super) fn warm(&mut self) -> Result<(), String> {
+        let (model, engine) = requirements()?;
+        let phase = std::mem::replace(&mut self.phase, Phase::Idle);
+        let (phase, result) = warm(phase, model, engine, spawn, roundtrip);
+        self.phase = phase;
+        result
+    }
+
+    pub(super) fn feed(&mut self, samples: &[f32]) -> Result<String, String> {
+        if samples.is_empty() {
+            return Ok(String::new());
+        }
+        self.exchange(
+            Request::Feed {
+                pcm: encode_pcm(samples),
+            },
+            partial_reply,
+        )
+    }
+
+    pub(super) fn finish(&mut self) -> Result<String, String> {
+        self.exchange(Request::Finish, final_reply)
+    }
+
+    fn exchange(
+        &mut self,
+        request: Request,
+        read: fn(Response) -> StreamAnswer,
+    ) -> Result<String, String> {
+        let Phase::Live(worker) = std::mem::replace(&mut self.phase, Phase::Idle) else {
+            return Err("speech model is not loaded".to_string());
+        };
+        let (worker, response) = roundtrip(worker, request)?;
+        match read(response) {
+            StreamAnswer::Text(text) => {
+                self.phase = Phase::Live(worker);
+                Ok(text)
+            }
+            StreamAnswer::Failed(message) => {
+                self.phase = Phase::Live(worker);
+                Err(message)
+            }
+            StreamAnswer::Broke => Err("speech worker broke the protocol".to_string()),
+        }
     }
 }
 

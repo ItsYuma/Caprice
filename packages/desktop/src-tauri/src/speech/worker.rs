@@ -85,6 +85,32 @@ fn dispatch(slot: &mut Slot, request: Request) -> Response {
                 Err(message) => Response::Error { message },
             }
         }
+        Request::Feed { pcm } => {
+            let samples = match decode_pcm(&pcm) {
+                Ok(samples) => samples,
+                Err(message) => return Response::Error { message },
+            };
+            let Slot::Loaded(engine) = slot else {
+                return Response::Error {
+                    message: "speech model is not loaded".to_string(),
+                };
+            };
+            match engine.feed(&samples) {
+                Ok(text) => Response::Partial { text },
+                Err(message) => Response::Error { message },
+            }
+        }
+        Request::Finish => {
+            let Slot::Loaded(engine) = slot else {
+                return Response::Error {
+                    message: "speech model is not loaded".to_string(),
+                };
+            };
+            match engine.finish() {
+                Ok(text) => Response::Text { text },
+                Err(message) => Response::Error { message },
+            }
+        }
     }
 }
 
