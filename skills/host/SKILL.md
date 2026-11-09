@@ -53,5 +53,8 @@ When the host allows it, the result comes back as a host line that starts with `
 - `GET /lol-champ-select/v1/pickable-champion-ids`
 - `GET /lol-game-data/assets/v1/champion-summary.json`
 - `PATCH /lol-champ-select/v1/session/actions/<id>` with `{"championId":<number>,"completed":true}`
+- `POST /lol-champ-select/v1/session/actions/<id>/complete`
+
+The action id comes from the session. If the patch with `completed` fails, patch `{"championId":<number>}` and then POST `complete`.
 
 Champion ids come from `champion-summary.json`. Do not invent a score, a phase, or a champion the result did not show. If the result says the client is not running, say that.

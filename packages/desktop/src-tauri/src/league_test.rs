@@ -1,9 +1,9 @@
 use std::io::{Read, Write};
 
 use super::{
-    basic_token, candidate_paths, clip, credentials_from_args, exchange, insecure_local,
-    install_dir_from_settings, locate_from, loopback_url, parse_lcu, parse_live, parse_lockfile,
-    Locate, Os, BODY_LIMIT,
+    args_from_command_line, basic_token, candidate_paths, clip, credentials_from_args, exchange,
+    insecure_local, install_dir_from_settings, locate_from, loopback_url, parse_lcu, parse_live,
+    parse_lockfile, Locate, Os, BODY_LIMIT,
 };
 
 #[test]
@@ -46,6 +46,15 @@ fn lcu_calls_keep_the_method_and_send_json() {
     let stop = parse_lcu("DELETE /lol-lobby/v2/lobby/matchmaking/search").expect("stop");
     assert_eq!(stop.body, None);
 
+    let complete =
+        parse_lcu("POST /lol-champ-select/v1/session/actions/3/complete").expect("complete");
+    assert_eq!(complete.method, "POST");
+    assert_eq!(
+        complete.path,
+        "/lol-champ-select/v1/session/actions/3/complete"
+    );
+    assert_eq!(complete.body.as_deref(), Some("{}"));
+
     assert!(parse_lcu("GET /lol-summoner/v1/current-summoner\n{}").is_err());
     assert!(parse_lcu("PATCH /lol-lobby/v2/lobby\nnot json").is_err());
     assert!(parse_lcu("TRACE /lol-lobby/v2/lobby").is_err());
@@ -71,6 +80,12 @@ fn lockfile_and_process_credentials_are_found_without_returning_the_token_path()
     assert_eq!(from_proc.token, "from-proc");
     assert!(credentials_from_args(&["--app-port=1".to_string()]).is_none());
 
+    let line = "\"C:\\Riot Games\\League of Legends\\LeagueClientUx.exe\" --app-port=5444 --remoting-auth-token=from-line";
+    let from_line = credentials_from_args(&args_from_command_line(line)).expect("line");
+    assert_eq!(from_line.port, 5444);
+    assert_eq!(from_line.token, "from-line");
+    assert_eq!(from_line.protocol, "https");
+
     let settings = "product_install_full_path: \"D:/Riot Games/League of Legends\"\n";
     assert_eq!(
         install_dir_from_settings(settings).as_deref(),
@@ -92,6 +107,12 @@ fn lockfile_and_process_credentials_are_found_without_returning_the_token_path()
     assert!(paths
         .iter()
         .any(|path| { path == "C:\\Program Files\\Riot Games\\League of Legends\\lockfile" }));
+    assert!(paths
+        .iter()
+        .any(|path| { path == "H:\\Games\\Riot Games\\League of Legends\\lockfile" }));
+    assert!(paths
+        .iter()
+        .any(|path| { path == "E:\\Program Files\\Riot Games\\League of Legends\\lockfile" }));
 
     let found = locate_from(&input, &|path| {
         if path == "D:\\Riot Games\\League of Legends\\lockfile" {

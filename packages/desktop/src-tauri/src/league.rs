@@ -1,10 +1,15 @@
+use std::io::Read;
+use std::process::{Command, Stdio};
+use std::time::{Duration, Instant};
+
 use base64::engine::general_purpose::STANDARD;
 use base64::Engine;
 
 // Riot documents the Live Client Data API on 127.0.0.1:2999.
 const LIVE_CLIENT_PORT: u16 = 2999;
 
-const BODY_LIMIT: usize = 80_000;
+const BODY_LIMIT: usize = 4_000_000;
+const COMMAND_LINE_WAIT: Duration = Duration::from_millis(3500);
 
 struct Lockfile {
     port: u16,
@@ -108,6 +113,20 @@ fn read_text(path: &str) -> Option<String> {
 }
 
 fn running_client_args() -> Vec<String> {
+    let from_proc = args_from_proc();
+
+    if credentials_from_args(&from_proc).is_some() {
+        return from_proc;
+    }
+
+    let Some(line) = league_client_ux_command_line() else {
+        return Vec::new();
+    };
+
+    args_from_command_line(&line)
+}
+
+fn args_from_proc() -> Vec<String> {
     let Ok(entries) = std::fs::read_dir("/proc") else {
         return Vec::new();
     };
@@ -131,6 +150,56 @@ fn running_client_args() -> Vec<String> {
     }
 
     Vec::new()
+}
+
+fn args_from_command_line(text: &str) -> Vec<String> {
+    text.split_whitespace()
+        .map(|part| part.to_string())
+        .collect()
+}
+
+fn league_client_ux_command_line() -> Option<String> {
+    if !cfg!(windows) {
+        return None;
+    }
+
+    let mut child = Command::new("powershell.exe")
+        .args([
+            "-NoProfile",
+            "-NonInteractive",
+            "-Command",
+            "Get-CimInstance Win32_Process -Filter \"Name = 'LeagueClientUx.exe'\" | Select-Object -ExpandProperty CommandLine",
+        ])
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+        .ok()?;
+    let mut stdout = child.stdout.take()?;
+
+    if !wait_for(&mut child, COMMAND_LINE_WAIT) {
+        let _ = child.kill();
+        let _ = child.wait();
+        return None;
+    }
+
+    let mut text = String::new();
+    stdout.read_to_string(&mut text).ok()?;
+    text.lines()
+        .find(|line| line.contains("LeagueClientUx"))
+        .map(|line| line.to_string())
+}
+
+fn wait_for(child: &mut std::process::Child, limit: Duration) -> bool {
+    let start = Instant::now();
+
+    loop {
+        match child.try_wait() {
+            Ok(Some(_)) => return true,
+            Ok(None) if start.elapsed() < limit => std::thread::sleep(Duration::from_millis(50)),
+            _ => return false,
+        }
+    }
 }
 
 fn split_cmdline(bytes: &[u8]) -> Vec<String> {
@@ -228,20 +297,30 @@ fn candidate_paths(input: &Locate, install_dir: Option<&str>) -> Vec<String> {
 
     match input.platform {
         Os::Windows => {
-            paths.push(lockfile_in(
-                "C:\\Riot Games\\League of Legends",
-                Os::Windows,
-            ));
-            paths.push(lockfile_in(
-                "C:\\Games\\Riot Games\\League of Legends",
-                Os::Windows,
-            ));
-
-            if !input.program_files.is_empty() {
+            for letter in ['C', 'D', 'E', 'F', 'G', 'H'] {
                 paths.push(lockfile_in(
-                    &format!("{}\\Riot Games\\League of Legends", input.program_files),
+                    &format!("{letter}:\\Riot Games\\League of Legends"),
                     Os::Windows,
                 ));
+                paths.push(lockfile_in(
+                    &format!("{letter}:\\Games\\Riot Games\\League of Legends"),
+                    Os::Windows,
+                ));
+                paths.push(lockfile_in(
+                    &format!("{letter}:\\Program Files\\Riot Games\\League of Legends"),
+                    Os::Windows,
+                ));
+            }
+
+            if !input.program_files.is_empty() {
+                let from_env = lockfile_in(
+                    &format!("{}\\Riot Games\\League of Legends", input.program_files),
+                    Os::Windows,
+                );
+
+                if !paths.contains(&from_env) {
+                    paths.push(from_env);
+                }
             }
         }
         Os::Macos => {

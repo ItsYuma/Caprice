@@ -29,6 +29,8 @@ test("host skill states the confirmation rule", () => {
   expect(contract).toContain("league_lcu");
   expect(contract).toContain("/liveclientdata/allgamedata");
   expect(contract).toContain("/lol-matchmaking/v1/ready-check/accept");
+  expect(contract).toContain("/lol-champ-select/v1/session/actions/");
+  expect(contract).toContain("/complete");
   expect(contract).toContain("champion-summary.json");
 });
 
