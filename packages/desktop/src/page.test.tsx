@@ -42,6 +42,7 @@ test("the window is the box and hides the conversation", () => {
   expect(html).not.toContain("Show text");
   expect(html).not.toContain("Say something");
   expect(html).not.toContain("data-who");
+  expect(html).not.toContain('id="allow"');
 });
 
 test("thinking is the only line while she works", () => {

@@ -1,5 +1,6 @@
 import {
   chatModel,
+  contractText,
   httpChatClient,
   ok,
   openSession,
@@ -11,6 +12,9 @@ import {
 import { invoke } from "@tauri-apps/api/core";
 import { useEffect, useRef, useState } from "react";
 import skill from "../../../skills/capri/SKILL.md?raw";
+import hostSkill from "../../../skills/host/SKILL.md?raw";
+
+import { leagueTools, shellLeagueBridge } from "./league.ts";
 
 import { loadModelEndpoint, type ShellModelEndpoint } from "./endpoint.ts";
 import { listenAndSay, type TurnPace } from "./host.ts";
@@ -188,12 +192,19 @@ async function open(): Promise<Result<Session>> {
   }
 
   const store = threadStore();
+  const inShell = "__TAURI_INTERNALS__" in window;
 
   return ok(
     openSession(
-      personaText(skill),
+      `${personaText(skill)}\n\n${contractText(hostSkill)}`,
       chatModel(httpChatClient(loaded.value, postChat)),
-      [],
+      leagueTools(
+        shellLeagueBridge(
+          inShell,
+          (path) => invoke<string>("league_live", { path }),
+          (request) => invoke<string>("league_lcu", { request }),
+        ),
+      ),
       store === undefined ? [] : readThread(store),
     ),
   );

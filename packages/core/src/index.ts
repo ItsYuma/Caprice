@@ -11,7 +11,11 @@ export { ok, tryCatch } from "./result.ts";
 
 export type { Result } from "./result.ts";
 
-export { personaText } from "./persona.ts";
+export { readToolCall } from "./call.ts";
+
+export type { ToolCall } from "./call.ts";
+
+export { contractText, personaText } from "./persona.ts";
 
 export { openSession, stubModel, threadLimit } from "./session.ts";
 

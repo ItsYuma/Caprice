@@ -2,7 +2,7 @@
 
 > "Hey, little baby. Wake up. Your computer has a girl in it now."
 
-Annoying desktop companion inspired by Capri from _Cyberpunk: Edgerunners 2_. She talks back. Later she handles tasks, after you confirm them.
+Annoying desktop companion inspired by Capri from _Cyberpunk: Edgerunners 2_. She talks back, and she calls a tool when she needs one.
 
 ```sh
 scripts/install.sh --model-url http://your-brain/v1/chat/completions --model your-model

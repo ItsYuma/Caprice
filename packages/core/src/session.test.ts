@@ -5,6 +5,7 @@ import {
   openSession,
   stubModel,
   threadLimit,
+  toolTurnLimit,
   type Line,
   type Model,
   type Tool,
@@ -92,4 +93,128 @@ test("stub model quotes the host", async () => {
   }
 
   expect(line.value.text).toContain("hello");
+});
+
+test("a tool call runs and the answer after the result is the reply", async () => {
+  const seen: string[] = [];
+  const turns: string[] = [];
+  const replies = ["call note\nhi", "call note\nagain", "done"];
+
+  const model: Model = {
+    async reply(turn) {
+      turns.push(turn.lines.map((line) => line.text).join(" | "));
+
+      return ok({ text: replies.shift() ?? "empty" });
+    },
+  };
+
+  const session = openSession("p", model, [
+    {
+      name: "note",
+      async run(input) {
+        seen.push(input);
+
+        return `saw ${input}`;
+      },
+    },
+  ]);
+
+  const answered = await session.say("look");
+
+  expect(seen).toEqual(["hi", "again"]);
+  expect(answered).toEqual({ ok: true, value: { who: "capri", text: "done" } });
+  expect(session.lines()).toEqual([
+    { who: "host", text: "look" },
+    { who: "host", text: "tool note\nsaw hi" },
+    { who: "host", text: "tool note\nsaw again" },
+    { who: "capri", text: "done" },
+  ]);
+  expect(turns[1]).toContain("tool note\nsaw hi");
+  expect(turns[2]).toContain("tool note\nsaw again");
+});
+
+test("a turn stops after the tool limit", async () => {
+  let runs = 0;
+  const replies: string[] = [];
+
+  for (let index = 0; index < toolTurnLimit + 1; index += 1) {
+    replies.push("call note hi");
+  }
+
+  const model: Model = {
+    async reply() {
+      return ok({ text: replies.shift() ?? "empty" });
+    },
+  };
+
+  const session = openSession("p", model, [
+    {
+      name: "note",
+      async run() {
+        runs += 1;
+
+        return "ran";
+      },
+    },
+  ]);
+
+  const line = await session.say("look");
+
+  expect(runs).toBe(toolTurnLimit);
+  expect(line.ok).toBe(false);
+
+  if (line.ok) {
+    return;
+  }
+
+  expect(line.error.message).toBe("too many tool calls");
+});
+
+test("a tool that throws fails the turn", async () => {
+  const session = openSession(
+    "p",
+    {
+      async reply() {
+        return ok({ text: "call note hi" });
+      },
+    },
+    [
+      {
+        name: "note",
+        async run() {
+          throw new Error("note broke");
+        },
+      },
+    ],
+  );
+
+  const line = await session.say("look");
+
+  expect(line.ok).toBe(false);
+
+  if (line.ok) {
+    return;
+  }
+
+  expect(line.error.message).toBe("note broke");
+  expect(session.lines()).toEqual([{ who: "host", text: "look" }]);
+});
+
+test("a call for an unknown tool is spoken", async () => {
+  const session = openSession(
+    "p",
+    {
+      async reply() {
+        return ok({ text: "call me later" });
+      },
+    },
+    [],
+  );
+
+  const line = await session.say("hey");
+
+  expect(line).toEqual({
+    ok: true,
+    value: { who: "capri", text: "call me later" },
+  });
 });

@@ -37,7 +37,9 @@ Done.
 
 ## 3. One computer tool
 
-One `Tool`. The host confirms the call before `run`. `skills/host` is the instruction the model sees. Rust does the OS work. Core stays free of Tauri.
+One `Tool`. `skills/host` is the instruction the model sees. The call runs when she names it. Rust does the OS work. Core stays free of Tauri.
+
+League client tools are not this milestone. `league_live` and `league_lcu` call the local League client when she names them. The computer tool is still the one this row is waiting on.
 
 ## 4. Day to day
 

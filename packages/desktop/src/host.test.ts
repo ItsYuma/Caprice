@@ -1,9 +1,34 @@
-import { openSession, stubModel } from "@caprice/core";
+import { ok, openSession, stubModel, type Model } from "@caprice/core";
 import { recordingSpeaker, scriptedListener } from "@caprice/voice";
 import { expect, test } from "bun:test";
 
 import { listenAndSay, sayAndSpeak, type TurnPace } from "./host.ts";
 import type { PaceMark, PaceNote } from "./pace.ts";
+
+test("a tool call is not spoken", async () => {
+  const replies = ["call note\nhi", "noted"];
+
+  const model: Model = {
+    async reply() {
+      return ok({ text: replies.shift() ?? "empty" });
+    },
+  };
+
+  const session = openSession("p", model, [
+    {
+      name: "note",
+      async run(input) {
+        return input;
+      },
+    },
+  ]);
+
+  const recording = recordingSpeaker();
+  const line = await sayAndSpeak(session, recording.speaker, "look");
+
+  expect(line).toEqual({ ok: true, value: { who: "capri", text: "noted" } });
+  expect(recording.spoken()).toEqual(["noted"]);
+});
 
 test("sayAndSpeak speaks the capri line", async () => {
   const session = openSession("p", stubModel(), []);

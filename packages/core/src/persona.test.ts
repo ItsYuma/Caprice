@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 
-import { personaText } from "./persona.ts";
+import { contractText, personaText } from "./persona.ts";
 
 const skill = await Bun.file(
   new URL("../../../skills/capri/SKILL.md", import.meta.url),
@@ -20,11 +20,24 @@ test("capri skill feeds the model from the voice heading", () => {
   expect(persona).toContain("fun");
 });
 
-test("host skill states the confirmation rule", () => {
-  expect(host).toContain("## Contract");
-  expect(host).toContain("confirm");
+test("host skill tells her how to call a tool", () => {
+  const contract = contractText(host);
+
+  expect(contract.startsWith("## Contract")).toBe(true);
+  expect(contract).toContain("four calls");
+  expect(contract).toContain("league_live");
+  expect(contract).toContain("league_lcu");
+  expect(contract).toContain("/liveclientdata/allgamedata");
+  expect(contract).toContain("/lol-matchmaking/v1/ready-check/accept");
+  expect(contract).toContain("/lol-champ-select/v1/session/actions/");
+  expect(contract).toContain("/complete");
+  expect(contract).toContain("champion-summary.json");
 });
 
 test("personaText rejects a skill with no voice", () => {
   expect(() => personaText("# Capri\nnope")).toThrow("Voice");
+});
+
+test("contractText rejects a skill with no contract", () => {
+  expect(() => contractText("# Host\nnope")).toThrow("Contract");
 });
