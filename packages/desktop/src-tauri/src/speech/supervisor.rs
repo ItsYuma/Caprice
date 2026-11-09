@@ -3,7 +3,7 @@ use std::process::{Child, ChildStdin, Command, Stdio};
 
 use super::engine::requirements;
 use super::pcm::resample_linear;
-use super::phase::{drive, Job, Phase};
+use super::phase::{drive, Follow, Job, Phase};
 use super::protocol::{encode_pcm, Request, Response};
 use super::worker::FLAG;
 
@@ -46,11 +46,72 @@ impl Supervisor {
             rate: RATE,
             model,
             engine,
+            follow: Follow::Clip,
         };
         let phase = std::mem::replace(&mut self.phase, Phase::Idle);
         let (phase, result) = drive(phase, job, spawn, roundtrip);
         self.phase = phase;
         result
+    }
+
+    pub(super) fn ensure(&mut self) -> Result<(), String> {
+        if matches!(self.phase, Phase::Live(_)) {
+            return Ok(());
+        }
+        let (model, engine) = requirements()?;
+        let job = Job {
+            pcm: String::new(),
+            rate: RATE,
+            model,
+            engine,
+            follow: Follow::Load,
+        };
+        let phase = std::mem::replace(&mut self.phase, Phase::Idle);
+        let (phase, result) = drive(phase, job, spawn, roundtrip);
+        self.phase = phase;
+        result.map(|_| ())
+    }
+
+    pub(super) fn feed(&mut self, samples: &[f32]) -> Result<(), String> {
+        if samples.is_empty() {
+            return Ok(());
+        }
+        self.ensure()?;
+        match self.round(Request::Feed {
+            pcm: encode_pcm(samples),
+        })? {
+            Response::Partial { .. } => Ok(()),
+            Response::Error { message } => Err(message),
+            _ => {
+                self.phase = Phase::Idle;
+                Err("speech worker broke the protocol".to_string())
+            }
+        }
+    }
+
+    pub(super) fn finish(&mut self) -> Result<String, String> {
+        self.ensure()?;
+        match self.round(Request::Finish)? {
+            Response::Text { text } => Ok(text),
+            Response::Error { message } => Err(message),
+            _ => {
+                self.phase = Phase::Idle;
+                Err("speech worker broke the protocol".to_string())
+            }
+        }
+    }
+
+    fn round(&mut self, request: Request) -> Result<Response, String> {
+        let Phase::Live(worker) = std::mem::replace(&mut self.phase, Phase::Idle) else {
+            return Err("speech model is not loaded".to_string());
+        };
+        match roundtrip(worker, request) {
+            Ok((worker, response)) => {
+                self.phase = Phase::Live(worker);
+                Ok(response)
+            }
+            Err(message) => Err(message),
+        }
     }
 }
 
