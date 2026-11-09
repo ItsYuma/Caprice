@@ -1,0 +1,4 @@
+[[permission]]
+identifier = "allow-league-client"
+description = "Read the Live Client Data API and call the local League client."
+commands.allow = ["league_live", "league_lcu"]

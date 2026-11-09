@@ -13,6 +13,9 @@ export type CapricePageProps = {
   pace: string;
   step: PaceName | "";
   stepAt: number;
+  ask: string;
+  onAllow: () => void;
+  onRefuse: () => void;
 };
 
 export function CapricePage(props: CapricePageProps) {
@@ -38,6 +41,17 @@ export function CapricePage(props: CapricePageProps) {
           step={props.step}
           stepAt={props.stepAt}
         />
+        {props.ask.length > 0 ? (
+          <div className="ask" role="group" aria-label="Confirm tool">
+            <p id="ask">{props.ask}</p>
+            <button type="button" id="allow" onClick={props.onAllow}>
+              Allow
+            </button>
+            <button type="button" id="refuse" onClick={props.onRefuse}>
+              Refuse
+            </button>
+          </div>
+        ) : null}
       </div>
     </main>
   );

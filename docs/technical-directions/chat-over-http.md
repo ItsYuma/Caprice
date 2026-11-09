@@ -8,4 +8,4 @@ The brain is a chat endpoint. Caprice does not load its weights.
 
 Inside the Tauri window, the page reads the process environment through `model_endpoint`, and Rust posts the body with `model_complete`. Outside the window, Vite passes the same names and the page posts. That endpoint must allow the page origin.
 
-Set aside: loading the chat weights in the shell or in a TypeScript worker, a default model, and an agent framework in front of the endpoint. The session already owns the turns. The endpoint already speaks this body, so another model is a different URL and name.
+Set aside: loading the chat weights in the shell or in a TypeScript worker, a default model, and an agent framework in front of the endpoint. The session already owns the turns. League tools are calls in that session, described in `docs/technical-directions/league-client-apis.md`. They do not add a framework or a `tools` field to this body. The endpoint already speaks this body, so another model is a different URL and name.

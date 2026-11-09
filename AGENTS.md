@@ -36,7 +36,7 @@ Stable Bun 1.4.4 has `bun test`, `bun fmt`, and `bun check`. `bun lint` in that 
 | ---------------------------- | ----------------------------------------------------- |
 | `packages/core`              | `Session`, `Model`, `Tool`, `Result`, persona slicing |
 | `packages/voice`             | `Listener` and `Speaker`                              |
-| `packages/desktop`           | React window and `sayAndSpeak`                        |
+| `packages/desktop`           | React window, `sayAndSpeak`, and the League client    |
 | `scripts/`                   | `install.sh`, `install.ps1`, and the dev launcher     |
 | `skills/`                    | Text the local model reads                            |
 | `docs/architecture.md`       | The diagram and the dependency rule                   |
@@ -124,3 +124,9 @@ Hold Alt+Space or Ctrl+Space while the Caprice window is focused, or hold the bo
 The ONNX variant loads the int8 weights through `transcribe-rs`. The Bark variant loads the safetensors checkpoint through telmo, in bf16, and prepends a quarter second of silence. Another speech model is a new engine variant in that worker, not a new language. No microphone name, host, or model id is hardcoded. Caprice does not start Handy and does not use the Web Speech API.
 
 `CAPRICE_TTS_ENGINE` selects the spoken reply. Empty or `http` posts to `CAPRICE_TTS_URL` with `CAPRICE_TTS_MODEL`. `woof` is a resident child. `CAPRICE_PYTHON` is that interpreter when it is set, and empty uses `python3`. `CAPRICE_TTS_WOOF` is the Underdog Woof directory. Rust speaks inside the window and returns the bytes. The page plays them. `speech_credit` is `Voice by Underdog Woof` for `woof`, and empty for HTTP. `scripts/install.sh` and `scripts/install.ps1` download Woof and Bark into the user data directory and write `config.json`. `bun run dev` fills any unset `CAPRICE_*` variable from that file. Outside Tauri the page does not invoke. Listening fails because the speech model is unavailable. Speaking uses `postSpeech` only when both `CAPRICE_TTS_URL` and `CAPRICE_TTS_MODEL` are set, and otherwise rejects with `speech is not configured`.
+
+## League
+
+`league_live` and `league_lcu` are the tools in `skills/host`. The model sees that skill from `## Contract` down, after the voice. A call is the whole reply. The session does not run it until the host allows it, on the box or with yes. Refuse, or no, leaves it unrun. The result is a host line the model answers from.
+
+Rust calls `127.0.0.1` only. `league_live` is the Live Client Data API on port 2999. `league_lcu` is the League client API. The port and the token come from the running client: its command line, then its lockfile. `CAPRICE_LEAGUE_LOCKFILE` is that lockfile when the install is somewhere else. The token is not shown to the model. Outside the Tauri window both tools say the league client is not available in this window.

@@ -1,3 +1,4 @@
+mod league;
 mod speech;
 
 pub use speech::worker::FLAG as SPEECH_WORKER_FLAG;
@@ -140,6 +141,8 @@ pub fn run() {
             speech_listen_stop,
             speech::speak::speech_speak,
             speech::speak::speech_credit,
+            league::league_live,
+            league::league_lcu,
         ])
         .run(tauri::generate_context!())
         .expect("error while running caprice");

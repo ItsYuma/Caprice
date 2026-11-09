@@ -1,16 +1,22 @@
 import {
   chatModel,
+  contractText,
   httpChatClient,
   ok,
   openSession,
+  pendingLabel,
   personaText,
   tryCatch,
+  type Line,
   type Result,
   type Session,
 } from "@caprice/core";
 import { invoke } from "@tauri-apps/api/core";
 import { useEffect, useRef, useState } from "react";
 import skill from "../../../skills/capri/SKILL.md?raw";
+import hostSkill from "../../../skills/host/SKILL.md?raw";
+
+import { leagueTools, shellLeagueBridge } from "./league.ts";
 
 import { loadModelEndpoint, type ShellModelEndpoint } from "./endpoint.ts";
 import { listenAndSay, type TurnPace } from "./host.ts";
@@ -36,6 +42,9 @@ export type CapriceSession = {
   pace: string;
   step: PaceName | "";
   stepAt: number;
+  ask: string;
+  allow: () => void;
+  refuse: () => void;
 };
 
 export function useSession(): CapriceSession {
@@ -46,6 +55,13 @@ export function useSession(): CapriceSession {
   const [marks, setMarks] = useState<readonly PaceMark[]>([]);
   const [step, setStep] = useState<PaceName | "">("");
   const [stepAt, setStepAt] = useState(0);
+  const [ask, setAsk] = useState("");
+
+  function publishAsk(current: Session): void {
+    const waiting = current.pending();
+
+    setAsk(waiting === undefined ? "" : pendingLabel(waiting));
+  }
 
   const note = useRef<PaceNote>({
     begin() {},
@@ -137,6 +153,7 @@ export function useSession(): CapriceSession {
         }
 
         setProblem("");
+        publishAsk(current);
       },
       setTalkPhase,
     );
@@ -146,6 +163,57 @@ export function useSession(): CapriceSession {
     return bindTalk(next);
   }, []);
 
+  async function settle(
+    run: (current: Session) => Promise<Result<Line>>,
+  ): Promise<void> {
+    const current = session.current;
+
+    if (current === undefined) {
+      setProblem("the model is not configured");
+
+      return;
+    }
+
+    setTalkPhase("busy");
+
+    let line: Result<Line>;
+
+    try {
+      line = await run(current);
+    } catch {
+      setTalkPhase("idle");
+      setProblem("the model request failed");
+
+      return;
+    }
+
+    setTalkPhase("idle");
+
+    if (!line.ok) {
+      setProblem(line.error.message);
+      publishAsk(current);
+
+      return;
+    }
+
+    setProblem("");
+    publishAsk(current);
+    remember(current);
+
+    if (line.value.text.length === 0) {
+      return;
+    }
+
+    const spoken = await tryCatch(
+      voice.speaker.speak(line.value.text),
+      "the model request failed",
+    );
+
+    if (!spoken.ok) {
+      setProblem(spoken.error.message);
+    }
+  }
+
   return {
     problem,
     hold,
@@ -154,6 +222,13 @@ export function useSession(): CapriceSession {
     pace: paceText(marks),
     step,
     stepAt,
+    ask,
+    allow() {
+      void settle((current) => current.allow());
+    },
+    refuse() {
+      void settle((current) => current.refuse());
+    },
   };
 }
 
@@ -188,12 +263,19 @@ async function open(): Promise<Result<Session>> {
   }
 
   const store = threadStore();
+  const inShell = "__TAURI_INTERNALS__" in window;
 
   return ok(
     openSession(
-      personaText(skill),
+      `${personaText(skill)}\n\n${contractText(hostSkill)}`,
       chatModel(httpChatClient(loaded.value, postChat)),
-      [],
+      leagueTools(
+        shellLeagueBridge(
+          inShell,
+          (path) => invoke<string>("league_live", { path }),
+          (request) => invoke<string>("league_lcu", { request }),
+        ),
+      ),
       store === undefined ? [] : readThread(store),
     ),
   );

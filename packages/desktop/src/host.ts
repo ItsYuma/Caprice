@@ -21,6 +21,10 @@ export async function sayAndSpeak(
     return line;
   }
 
+  if (line.value.text.length === 0) {
+    return line;
+  }
+
   const spoken = await tryCatch(
     voiced(pace, () => speaker.speak(line.value.text)),
     "the model request failed",
