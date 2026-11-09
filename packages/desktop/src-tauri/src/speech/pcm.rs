@@ -1,3 +1,28 @@
+pub(super) fn stable_resample_len(samples: usize, from_rate: u32, to_rate: u32) -> usize {
+    if samples == 0 || from_rate == 0 || from_rate == to_rate {
+        return samples;
+    }
+    let out_len = (samples as u64)
+        .saturating_mul(u64::from(to_rate))
+        .saturating_div(u64::from(from_rate)) as usize;
+    if out_len == 0 {
+        return 0;
+    }
+    let last = (samples - 1) as f64;
+    let mut lo = 0;
+    let mut hi = out_len;
+    while lo < hi {
+        let mid = lo + (hi - lo) / 2;
+        let position = mid as f64 * f64::from(from_rate) / f64::from(to_rate);
+        if position <= last {
+            lo = mid + 1;
+        } else {
+            hi = mid;
+        }
+    }
+    lo
+}
+
 pub(super) fn resample_linear(samples: &[f32], from_rate: u32, to_rate: u32) -> Vec<f32> {
     if samples.is_empty() || from_rate == 0 || from_rate == to_rate {
         return samples.to_vec();

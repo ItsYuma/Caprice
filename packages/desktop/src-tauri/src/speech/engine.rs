@@ -8,6 +8,7 @@ use super::parakeet;
 pub(super) enum EngineKind {
     Onnx,
     Bark,
+    BarkStream,
 }
 
 impl EngineKind {
@@ -15,6 +16,7 @@ impl EngineKind {
         match raw.trim() {
             "" | "onnx" => Ok(Self::Onnx),
             "bark" => Ok(Self::Bark),
+            "bark-stream" => Ok(Self::BarkStream),
             other => Err(format!("unknown speech engine: {other}")),
         }
     }
@@ -23,6 +25,7 @@ impl EngineKind {
         match self {
             Self::Onnx => "onnx",
             Self::Bark => "bark",
+            Self::BarkStream => "bark-stream",
         }
     }
 }
@@ -30,13 +33,16 @@ impl EngineKind {
 pub(super) enum Engine {
     Onnx(parakeet::ParakeetEngine),
     Bark(Box<bark::BarkEngine>),
+    BarkStream(Box<bark::BarkEngine>),
 }
 
 impl Transcriber for Engine {
     fn transcribe(&mut self, samples: &[f32], sample_rate: u32) -> Result<String, String> {
         match self {
             Self::Onnx(engine) => engine.transcribe(samples, sample_rate),
-            Self::Bark(engine) => engine.transcribe(samples, sample_rate),
+            Self::Bark(engine) | Self::BarkStream(engine) => {
+                engine.transcribe(samples, sample_rate)
+            }
         }
     }
 }
@@ -46,6 +52,7 @@ impl Engine {
         match kind {
             EngineKind::Onnx => Ok(Self::Onnx(parakeet::load_at(model)?)),
             EngineKind::Bark => Ok(Self::Bark(Box::new(bark::load_at(model)?))),
+            EngineKind::BarkStream => Ok(Self::BarkStream(Box::new(bark::load_at(model)?))),
         }
     }
 }

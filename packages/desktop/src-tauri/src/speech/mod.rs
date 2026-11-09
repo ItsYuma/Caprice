@@ -1,7 +1,9 @@
 mod bark;
+mod bark_stream;
 mod capture;
 mod contract;
 mod engine;
+mod feed;
 mod parakeet;
 mod pcm;
 mod phase;
@@ -17,7 +19,7 @@ pub(crate) use woof::ReplyState;
 use std::sync::{Arc, Mutex, MutexGuard};
 
 use capture::Recording;
-use engine::requirements;
+use engine::{requirements, EngineKind};
 use phase::{press, release, Mic, Press, Released};
 use supervisor::Supervisor;
 
@@ -27,14 +29,24 @@ pub(crate) struct SpeechState {
 }
 
 struct SpeechShared {
+    feed: Mutex<Option<feed::Feeder>>,
     supervisor: Mutex<Supervisor>,
     mic: Mutex<Mic<Recording>>,
+}
+
+impl Drop for SpeechShared {
+    fn drop(&mut self) {
+        *lock(&self.mic) = Mic::Idle;
+        let feeder = lock(&self.feed).take();
+        drop(feeder);
+    }
 }
 
 impl SpeechState {
     pub(crate) fn new() -> Self {
         Self {
             shared: Arc::new(SpeechShared {
+                feed: Mutex::new(None),
                 supervisor: Mutex::new(Supervisor::new()),
                 mic: Mutex::new(Mic::Idle),
             }),
@@ -50,11 +62,19 @@ pub(crate) fn speech_transcribe(state: &SpeechState, path: String) -> Result<Str
 }
 
 pub(crate) fn speech_listen_start(state: &SpeechState) -> Result<(), String> {
-    requirements()?;
+    let (_, kind) = requirements()?;
     let mut mic = lock(&state.shared.mic);
     match press(std::mem::replace(&mut *mic, Mic::Idle)) {
         Press::Open => match capture::open_input() {
             Ok(recording) => {
+                if kind == EngineKind::BarkStream {
+                    let feeder = feed::Feeder::start(
+                        &state.shared,
+                        Arc::clone(&recording.samples),
+                        recording.sample_rate,
+                    );
+                    *lock(&state.shared.feed) = Some(feeder);
+                }
                 *mic = Mic::Hot(recording);
                 Ok(())
             }
@@ -71,8 +91,8 @@ pub(crate) fn speech_listen_start(state: &SpeechState) -> Result<(), String> {
 }
 
 pub(crate) fn speech_listen_stop(state: &SpeechState) -> Result<String, String> {
-    requirements()?;
-    let captured = {
+    let (_, kind) = requirements()?;
+    let (samples, sample_rate) = {
         let mut mic = lock(&state.shared.mic);
         match release(std::mem::replace(&mut *mic, Mic::Idle)) {
             Released::Idle => return Err("not listening".to_string()),
@@ -83,12 +103,22 @@ pub(crate) fn speech_listen_stop(state: &SpeechState) -> Result<String, String> 
                     sample_rate,
                 } = recording;
                 drop(stream);
-                let audio = lock(&samples).clone();
-                (audio, sample_rate)
+                (samples, sample_rate)
             }
         }
     };
-    lock(&state.shared.supervisor).transcribe(&captured.0, captured.1)
+    let fed = match lock(&state.shared.feed).take() {
+        Some(feeder) => feeder.stop(),
+        None => Ok(()),
+    };
+    if kind == EngineKind::BarkStream {
+        let text = lock(&state.shared.supervisor).finish();
+        fed?;
+        return text;
+    }
+    fed?;
+    let audio = lock(&samples).clone();
+    lock(&state.shared.supervisor).transcribe(&audio, sample_rate)
 }
 
 pub(super) fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {

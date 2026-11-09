@@ -1,4 +1,4 @@
-use super::{decode_wav, resample_linear};
+use super::{decode_wav, resample_linear, stable_resample_len};
 
 fn encode_wav(sample_rate: u32, samples: &[f32]) -> Vec<u8> {
     let data_len = samples.len() * 2;
@@ -37,6 +37,43 @@ fn resample_doubles_an_integer_rate() {
     assert!((out[3] - 1.0).abs() < 0.001);
     assert_eq!(resample_linear(&[0.25], 16_000, 16_000), vec![0.25]);
     assert!(resample_linear(&[], 48_000, 16_000).is_empty());
+}
+
+fn counted_stable(samples: usize, from_rate: u32, to_rate: u32) -> usize {
+    if samples == 0 || from_rate == 0 || from_rate == to_rate {
+        return samples;
+    }
+    let out_len = (samples as u64)
+        .saturating_mul(u64::from(to_rate))
+        .saturating_div(u64::from(from_rate)) as usize;
+    let last = (samples - 1) as f64;
+    (0..out_len)
+        .filter(|index| *index as f64 * f64::from(from_rate) / f64::from(to_rate) <= last)
+        .count()
+}
+
+#[test]
+fn a_stable_prefix_does_not_change_when_more_audio_arrives() {
+    assert_eq!(stable_resample_len(0, 48_000, 16_000), 0);
+    assert_eq!(stable_resample_len(4, 16_000, 16_000), 4);
+    assert_eq!(stable_resample_len(3, 0, 16_000), 3);
+    assert_eq!(stable_resample_len(2, 8_000, 16_000), 3);
+
+    for (from_rate, to_rate) in [(8_000, 16_000), (48_000, 16_000), (44_100, 16_000)] {
+        for samples in [1_usize, 2, 3, 4, 5, 17, 160, 161, 1_000] {
+            assert_eq!(
+                stable_resample_len(samples, from_rate, to_rate),
+                counted_stable(samples, from_rate, to_rate)
+            );
+        }
+    }
+
+    let ramp: Vec<f32> = (0..8).map(|index| index as f32).collect();
+    let short = resample_linear(&ramp[..4], 8_000, 16_000);
+    let long = resample_linear(&ramp, 8_000, 16_000);
+    let stable = stable_resample_len(4, 8_000, 16_000);
+    assert!(stable < short.len());
+    assert_eq!(&short[..stable], &long[..stable]);
 }
 
 #[test]
