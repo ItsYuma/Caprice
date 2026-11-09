@@ -8,12 +8,17 @@ import { expect, test } from "bun:test";
 
 import { listenAndSay } from "./host.ts";
 import {
+  bindTalkButton,
+  dragInsteadOfTalk,
   holdToTalk,
   isTalkChord,
   isTalkRelease,
+  pointerMoved,
   talkChordLabel,
   talkChordShortcuts,
+  talkDragDistance,
   type TalkPhase,
+  type TalkTarget,
 } from "./talk.ts";
 
 const chord = {
@@ -118,6 +123,139 @@ test("a tap does not send", () => {
   hold.release();
   expect(hold.phase()).toBe("busy");
 });
+
+test("a move before listening drags the window and does not send", () => {
+  expect(pointerMoved(0, 0, 3, 4)).toBe(false);
+  expect(pointerMoved(0, 0, talkDragDistance, 0)).toBe(false);
+  expect(pointerMoved(0, 0, talkDragDistance + 1, 0)).toBe(true);
+  expect(pointerMoved(2, 5, 8, 11)).toBe(true);
+  expect(dragInsteadOfTalk("idle", true)).toBe(true);
+  expect(dragInsteadOfTalk("busy", true)).toBe(true);
+  expect(dragInsteadOfTalk("listening", true)).toBe(false);
+  expect(dragInsteadOfTalk("idle", false)).toBe(false);
+
+  const box = talkBox();
+  let turns = 0;
+  let drags = 0;
+  let start = () => {};
+
+  const hold = holdToTalk(
+    captureListener(heldCapture().capture),
+    () => {
+      turns += 1;
+
+      return Promise.resolve();
+    },
+    () => {},
+    (run) => {
+      start = run;
+
+      return () => {
+        start = () => {};
+      };
+    },
+  );
+
+  bindTalkButton(box.button, hold, () => {
+    drags += 1;
+  });
+
+  box.fire(press("pointerdown", 10, 20));
+  box.fire(press("pointermove", 12, 21));
+  expect(drags).toBe(0);
+  expect(turns).toBe(0);
+  box.fire(press("pointermove", 10 + talkDragDistance + 1, 20));
+  start();
+  box.fire(press("pointerup", 30, 20));
+  expect(drags).toBe(1);
+  expect(turns).toBe(0);
+  expect(hold.phase()).toBe("idle");
+});
+
+test("a still hold on the box still listens", () => {
+  const box = talkBox();
+  let start = () => {};
+  let drags = 0;
+
+  const hold = holdToTalk(
+    captureListener(heldCapture().capture),
+    () => Promise.resolve(),
+    () => {},
+    (run) => {
+      start = run;
+
+      return () => {
+        start = () => {};
+      };
+    },
+  );
+
+  bindTalkButton(box.button, hold, () => {
+    drags += 1;
+  });
+
+  box.fire(press("pointerdown", 4, 4));
+  box.fire(press("pointermove", 6, 5));
+  start();
+  expect(hold.phase()).toBe("listening");
+  expect(drags).toBe(0);
+  box.fire(press("pointermove", 40, 40));
+  expect(drags).toBe(0);
+  expect(hold.phase()).toBe("listening");
+  box.fire(press("pointerup", 40, 40));
+  expect(hold.phase()).toBe("busy");
+});
+
+function talkBox() {
+  const listeners = new Map<string, (event: Event) => void>();
+  let captured: number | undefined;
+
+  const button: TalkTarget = {
+    setPointerCapture(pointerId) {
+      captured = pointerId;
+    },
+    releasePointerCapture(pointerId) {
+      if (captured === pointerId) {
+        captured = undefined;
+      }
+    },
+    hasPointerCapture(pointerId) {
+      return captured === pointerId;
+    },
+    addEventListener(type, listener) {
+      listeners.set(type, listener);
+    },
+    removeEventListener(type, listener) {
+      if (listeners.get(type) === listener) {
+        listeners.delete(type);
+      }
+    },
+  };
+
+  return {
+    button,
+    fire(event: Event) {
+      const listener = listeners.get(event.type);
+
+      if (listener !== undefined) {
+        listener(event);
+      }
+    },
+  };
+}
+
+function press(type: string, x: number, y: number): Event {
+  const moving = type === "pointermove";
+  const released = type === "pointerup" || type === "pointercancel";
+
+  return Object.assign(new Event(type), {
+    button: moving ? -1 : 0,
+    buttons: released ? 0 : 1,
+    clientX: x,
+    clientY: y,
+    pointerId: 1,
+  });
+}
 
 function beginNow(run: () => void): () => void {
   run();

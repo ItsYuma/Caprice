@@ -57,7 +57,7 @@ async fn model_complete(url: String, body: String, api_key: String) -> Result<St
 mod tests {
     use std::io::{Read, Write};
 
-    use super::model_complete;
+    use super::{companion_origin, model_complete};
 
     #[test]
     fn posts_to_the_given_url() {
@@ -89,6 +89,13 @@ mod tests {
         assert!(request.contains("authorization: bearer secret"));
         assert!(request.contains("{\"model\":\"shell-model\"}"));
         assert_eq!(text, "{\"ok\":true}");
+    }
+
+    #[test]
+    fn companion_opens_at_the_top_left_of_the_work_area() {
+        assert_eq!(companion_origin(0, 0), (24, 24));
+        assert_eq!(companion_origin(80, 40), (104, 64));
+        assert_eq!(companion_origin(-1920, 100), (-1896, 124));
     }
 }
 
@@ -148,6 +155,12 @@ pub fn run() {
         .expect("error while running caprice");
 }
 
+const COMPANION_MARGIN: i32 = 24;
+
+fn companion_origin(area_x: i32, area_y: i32) -> (i32, i32) {
+    (area_x + COMPANION_MARGIN, area_y + COMPANION_MARGIN)
+}
+
 fn place_companion(app: &tauri::AppHandle) {
     let Some(window) = app.get_webview_window("main") else {
         return;
@@ -155,12 +168,7 @@ fn place_companion(app: &tauri::AppHandle) {
     let Ok(Some(monitor)) = window.current_monitor() else {
         return;
     };
-    let Ok(size) = window.outer_size() else {
-        return;
-    };
     let area = monitor.work_area();
-    let margin = 24;
-    let x = area.position.x + area.size.width as i32 - size.width as i32 - margin;
-    let y = area.position.y + area.size.height as i32 - size.height as i32 - margin;
+    let (x, y) = companion_origin(area.position.x, area.position.y);
     let _ = window.set_position(tauri::PhysicalPosition::new(x, y));
 }

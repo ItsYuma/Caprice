@@ -20,6 +20,7 @@ export type PresenceProps = {
   pace: string;
   step: PaceName | "";
   stepAt: number;
+  drag: () => void;
 };
 
 export function Presence(props: PresenceProps) {
@@ -43,8 +44,8 @@ export function Presence(props: PresenceProps) {
       return;
     }
 
-    return bindTalkButton(node, props.hold);
-  }, [props.hold]);
+    return bindTalkButton(node, props.hold, props.drag);
+  }, [props.hold, props.drag]);
 
   useEffect(() => {
     let frameId = 0;

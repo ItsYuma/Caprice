@@ -37,6 +37,7 @@ export function CapricePage(props: CapricePageProps) {
           pace={props.pace}
           step={props.step}
           stepAt={props.stepAt}
+          drag={dragWindow}
         />
       </div>
     </main>
@@ -49,4 +50,12 @@ function closeWindow(): void {
   }
 
   void getCurrentWindow().close();
+}
+
+function dragWindow(): void {
+  if (!("__TAURI_INTERNALS__" in window)) {
+    return;
+  }
+
+  void getCurrentWindow().startDragging();
 }
