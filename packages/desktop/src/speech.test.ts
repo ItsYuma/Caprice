@@ -5,16 +5,23 @@ import {
   pageCanSpeak,
   pageListener,
   readSpeechCredit,
+  readSpeechDeadline,
+  speechDeadlineDefaultMs,
   speechHint,
   pageSpeaker,
   postSpeech,
+  shellListener,
   shellSpeaker,
   speechUnconfigured,
+  tauriCommands,
   ttsExchange,
   modelUnavailable,
+  type SpeechBridge,
   type SpeechCommands,
   type TtsEnv,
 } from "./speech.ts";
+
+const live = new AbortController().signal;
 
 test("shell audio is decoded before it is played", async () => {
   const played: number[][] = [];
@@ -23,7 +30,7 @@ test("shell audio is decoded before it is played", async () => {
     played.push(Array.from(bytes));
   });
 
-  await speaker.speak("  hey  ");
+  await speaker.speak("  hey  ", live);
   expect(played).toEqual([[1, 2, 3, 255]]);
 });
 
@@ -73,7 +80,7 @@ test("page speech posts json and plays the response bytes", async () => {
       },
     );
 
-    await speaker.speak("  hey  ");
+    await speaker.speak("  hey  ", live);
     expect(method).toBe("POST");
     expect(authorization).toBe("Bearer token-a");
     expect(contentType).toBe("application/json");
@@ -118,7 +125,7 @@ test("page speech omits voice and authorization when they are empty", async () =
       async () => {},
     );
 
-    await speaker.speak("hey");
+    await speaker.speak("hey", live);
     expect(authorization).toBeNull();
     expect(JSON.parse(body)).toEqual({ model: "voice-b", input: "hey" });
   } finally {
@@ -170,7 +177,7 @@ test("empty audio is not played", async () => {
       },
     );
 
-    await speaker.speak("hey");
+    await speaker.speak("hey", live);
     expect(plays).toBe(0);
   } finally {
     server.stop(true);
@@ -191,7 +198,7 @@ test("missing speech configuration does not post", async () => {
     async () => {},
   );
 
-  await expect(speaker.speak("hey")).rejects.toThrow(speechUnconfigured);
+  await expect(speaker.speak("hey", live)).rejects.toThrow(speechUnconfigured);
   expect(posts).toBe(0);
   expect(
     ttsExchange({ CAPRICE_TTS_URL: " ", CAPRICE_TTS_MODEL: "m" }, "hey"),
@@ -229,7 +236,7 @@ test("the page speaks over http and refuses a shell engine", async () => {
 
   const woof = pageSpeaker(env, " woof ", post, async () => {});
 
-  await expect(woof.speak("hey")).rejects.toThrow(
+  await expect(woof.speak("hey", live)).rejects.toThrow(
     "speech engine runs in the shell: woof",
   );
   expect(posts).toBe(0);
@@ -243,7 +250,7 @@ test("the page speaks over http and refuses a shell engine", async () => {
 
   const http = pageSpeaker(env, " http ", post, async () => {});
 
-  await http.speak("hey");
+  await http.speak("hey", live);
   expect(posts).toBe(1);
 });
 
@@ -287,11 +294,169 @@ function spoken(encoded: string): SpeechCommands {
     async listenStop() {
       return "";
     },
+    async cancelListen() {},
     async speak() {
       return encoded;
     },
+    async cancelReply() {},
   };
 }
+
+test("cancel suppresses late speech bytes", async () => {
+  const controller = new AbortController();
+  let played = 0;
+  let release = (_bytes: Uint8Array) => {};
+
+  const speaker = pageSpeaker(
+    {
+      CAPRICE_TTS_URL: "http://voice.example/speech",
+      CAPRICE_TTS_MODEL: "voice-a",
+    },
+    "http",
+    () =>
+      new Promise((resolve) => {
+        release = resolve;
+      }),
+    async () => {
+      played += 1;
+    },
+  );
+
+  const pending = speaker.speak("hey", controller.signal);
+
+  await Promise.resolve();
+  controller.abort();
+  release(new Uint8Array([9, 9, 9]));
+  await expect(pending).rejects.toThrow("cancelled");
+  expect(played).toBe(0);
+});
+
+test("speech fetch stays bounded by the deadline after cancel would have returned", async () => {
+  const server = Bun.serve({
+    port: 0,
+    fetch() {
+      return new Promise(() => undefined);
+    },
+  });
+
+  try {
+    const pending = postSpeech(
+      { url: server.url.href, body: "{}", apiKey: "" },
+      30,
+    );
+
+    await expect(pending).rejects.toThrow("speech timed out");
+  } finally {
+    server.stop(true);
+  }
+});
+
+test("the speech deadline defaults to 60s and rejects a bad value", () => {
+  expect(readSpeechDeadline(undefined)).toBe(speechDeadlineDefaultMs);
+  expect(readSpeechDeadline(" ")).toBe(60_000);
+  expect(readSpeechDeadline("500")).toBe(500);
+  expect(() => readSpeechDeadline("later")).toThrow(
+    "CAPRICE_TTS_DEADLINE_MS is not a whole number of milliseconds",
+  );
+  expect(() => readSpeechDeadline("0")).toThrow(
+    "CAPRICE_TTS_DEADLINE_MS is not a whole number of milliseconds",
+  );
+});
+
+test("a reply cancel finishes before the next synthesis", async () => {
+  const order: string[] = [];
+  let releaseSpeak = () => {};
+  let releaseCancel = () => {};
+  let speaks = 0;
+
+  const commands: SpeechCommands = {
+    async listenStart() {},
+    async listenStop() {
+      return "";
+    },
+    async cancelListen() {},
+    speak() {
+      speaks += 1;
+      order.push(`speak-${speaks}`);
+
+      if (speaks === 1) {
+        return new Promise((resolve) => {
+          releaseSpeak = () => {
+            resolve("AQID");
+          };
+        });
+      }
+
+      return Promise.resolve("AQID");
+    },
+    cancelReply() {
+      order.push("cancel");
+
+      return new Promise((resolve) => {
+        releaseCancel = () => {
+          order.push("cancel-done");
+          resolve();
+        };
+      });
+    },
+  };
+
+  const speaker = shellSpeaker(commands, async () => {
+    order.push("play");
+  });
+
+  const first = new AbortController();
+  const pending = speaker.speak("hey", first.signal);
+
+  await Promise.resolve();
+  expect(order).toEqual(["speak-1"]);
+  first.abort();
+  releaseSpeak();
+
+  const second = speaker.speak("again", new AbortController().signal);
+
+  await Promise.resolve();
+  expect(order).toEqual(["speak-1", "cancel"]);
+  releaseCancel();
+  await expect(pending).rejects.toThrow("cancelled");
+  await second;
+  expect(order).toEqual([
+    "speak-1",
+    "cancel",
+    "cancel-done",
+    "speak-2",
+    "play",
+  ]);
+});
+
+test("listener cancel asks the shell to cancel and does not transcribe", async () => {
+  const commands: string[] = [];
+
+  const bridge: SpeechBridge = {
+    async run(command) {
+      commands.push(command);
+    },
+    async text(command) {
+      commands.push(command);
+
+      return "partial hello";
+    },
+    async speak() {
+      return "";
+    },
+  };
+
+  const listener = shellListener(tauriCommands(bridge));
+  const pending = listener.listen();
+
+  await Promise.resolve();
+  await Promise.resolve();
+  listener.cancel();
+  await expect(pending).rejects.toThrow("cancelled");
+  expect(commands).toContain("speech_cancel");
+  expect(commands).not.toContain("speech_listen_stop");
+  expect(commands).not.toContain("speech_transcribe");
+});
 
 function encode(bytes: Uint8Array): string {
   let binary = "";

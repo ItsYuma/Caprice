@@ -67,6 +67,7 @@ test("thinking is the only line while she works", () => {
   expect(presenceMode("busy", true)).toBe("speaking");
   expect(presenceMode("listening", false)).toBe("listening");
   expect(presenceMode("idle", false)).toBe("idle");
+  expect(presenceMode("armed", false)).toBe("idle");
 });
 
 test("the box shows where the turn spent time", () => {

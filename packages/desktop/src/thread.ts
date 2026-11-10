@@ -1,4 +1,10 @@
-import { threadLimit, type Line, type Who } from "@caprice/core";
+import {
+  conversationEvents,
+  fail,
+  ok,
+  type Result,
+  type TranscriptEvent,
+} from "@caprice/core";
 
 export type ThreadStore = {
   getItem: (key: string) => string | null;
@@ -14,7 +20,7 @@ type JsonRecord = {
 type JsonValue =
   string | number | boolean | null | JsonRecord | readonly JsonValue[];
 
-export function readThread(store: ThreadStore): Line[] {
+export function readThread(store: ThreadStore): TranscriptEvent[] {
   const raw = readRaw(store);
 
   if (raw.length === 0) {
@@ -33,39 +39,42 @@ export function readThread(store: ThreadStore): Line[] {
     return [];
   }
 
-  const lines: Line[] = [];
+  const events: TranscriptEvent[] = [];
 
   for (const item of parsed) {
     if (!isPlainObject(item)) {
       continue;
     }
 
-    const who = readWho(item);
-    const text = readString(item, "text");
+    const event = readEvent(item);
 
-    if (who === undefined || text === undefined) {
+    if (event === undefined) {
       continue;
     }
 
-    lines.push({ who, text });
+    events.push(event);
   }
 
-  return tail(lines);
+  return conversationEvents(events);
 }
 
-export function writeThread(store: ThreadStore, lines: readonly Line[]): void {
-  const kept = tail(lines);
-
+export function writeThread(
+  store: ThreadStore,
+  events: readonly TranscriptEvent[],
+): Result<boolean> {
   try {
-    store.setItem(threadKey, JSON.stringify(kept));
+    store.setItem(threadKey, JSON.stringify(conversationEvents(events)));
+
+    return ok(true);
   } catch {
-    return;
+    return fail("couldn't save the conversation");
   }
 }
 
 export function threadStore(): ThreadStore | undefined {
   try {
     const store = globalThis.localStorage;
+
     store.getItem(threadKey);
 
     return store;
@@ -82,28 +91,31 @@ function readRaw(store: ThreadStore): string {
   }
 }
 
-function tail(lines: readonly Line[]): Line[] {
-  const start = lines.length > threadLimit ? lines.length - threadLimit : 0;
-  const kept: Line[] = [];
+function readEvent(value: JsonRecord): TranscriptEvent | undefined {
+  const text = readString(value, "text");
 
-  for (let index = start; index < lines.length; index += 1) {
-    const line = lines[index];
-
-    if (line === undefined) {
-      continue;
-    }
-
-    kept.push({ who: line.who, text: line.text });
+  if (text === undefined) {
+    return undefined;
   }
 
-  return kept;
-}
+  const kind = readString(value, "kind");
 
-function readWho(value: JsonRecord): Who | undefined {
+  if (kind === "user" || kind === "assistant") {
+    return { kind, text };
+  }
+
+  if (kind === "tool-call" || kind === "tool-result") {
+    return undefined;
+  }
+
   const who = readString(value, "who");
 
-  if (who === "host" || who === "capri") {
-    return who;
+  if (who === "host") {
+    return { kind: "user", text };
+  }
+
+  if (who === "capri") {
+    return { kind: "assistant", text };
   }
 
   return undefined;

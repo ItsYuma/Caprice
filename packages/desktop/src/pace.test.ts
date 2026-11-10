@@ -51,6 +51,7 @@ test("hear starts when the hold releases", async () => {
           started();
         });
       },
+      async cancel() {},
     }),
     note,
     () => time,

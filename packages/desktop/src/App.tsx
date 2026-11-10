@@ -14,6 +14,9 @@ export function App() {
 
     void readSpeechCredit(inShell, () => invoke<string>("speech_credit")).then(
       setCredit,
+      () => {
+        setCredit("");
+      },
     );
   }, []);
 

@@ -1,39 +1,50 @@
-import { ok, openSession, stubModel, type Model } from "@caprice/core";
+import {
+  ok,
+  openSession,
+  stubModel,
+  type Model,
+  type ModelOutput,
+  type Tool,
+} from "@caprice/core";
 import { recordingSpeaker, scriptedListener } from "@caprice/voice";
 import { expect, test } from "bun:test";
 
 import { listenAndSay, sayAndSpeak, type TurnPace } from "./host.ts";
 import type { PaceMark, PaceNote } from "./pace.ts";
 
+const signal = new AbortController().signal;
+
 test("a tool call is not spoken", async () => {
-  const replies = ["call note\nhi", "noted"];
+  const replies: ModelOutput[] = [
+    {
+      kind: "calls",
+      calls: [{ id: "1", name: "note", input: "hi" }],
+    },
+    { kind: "message", text: "noted" },
+  ];
 
   const model: Model = {
-    async reply() {
-      return ok({ text: replies.shift() ?? "empty" });
+    async complete() {
+      return ok(replies.shift() ?? { kind: "message", text: "empty" });
     },
   };
 
-  const session = openSession("p", model, [
-    {
-      name: "note",
-      async run(input) {
-        return input;
-      },
-    },
-  ]);
+  const session = openSession("p", model, [noteTool(async (input) => input)]);
 
   const recording = recordingSpeaker();
-  const line = await sayAndSpeak(session, recording.speaker, "look");
+  const line = await sayAndSpeak(session, recording.speaker, "look", signal);
 
-  expect(line).toEqual({ ok: true, value: { who: "capri", text: "noted" } });
+  expect(line).toEqual({
+    ok: true,
+    value: { kind: "assistant", text: "noted" },
+  });
   expect(recording.spoken()).toEqual(["noted"]);
 });
 
 test("sayAndSpeak speaks the capri line", async () => {
   const session = openSession("p", stubModel(), []);
   const recording = recordingSpeaker();
-  const line = await sayAndSpeak(session, recording.speaker, "yo");
+  const line = await sayAndSpeak(session, recording.speaker, "yo", signal);
 
   expect(line.ok).toBe(true);
 
@@ -52,15 +63,16 @@ test("listenAndSay feeds the heard line to say and speaks the reply", async () =
     session,
     scriptedListener(["yo"]),
     recording.speaker,
+    signal,
   );
 
   expect(line).toEqual({
     ok: true,
-    value: { who: "capri", text: "No model yet. You said: yo" },
+    value: { kind: "assistant", text: "No model yet. You said: yo" },
   });
-  expect(session.lines()).toEqual([
-    { who: "host", text: "yo" },
-    { who: "capri", text: "No model yet. You said: yo" },
+  expect(session.events()).toEqual([
+    { kind: "user", text: "yo" },
+    { kind: "assistant", text: "No model yet. You said: yo" },
   ]);
   expect(recording.spoken()).toEqual(["No model yet. You said: yo"]);
 });
@@ -97,6 +109,7 @@ test("reply and voice are timed apart from playback", async () => {
       },
     },
     "yo",
+    signal,
     pace,
   );
 
@@ -115,9 +128,24 @@ test("listenAndSay drops a blank transcript before say", async () => {
     session,
     scriptedListener(["   "]),
     recording.speaker,
+    signal,
   );
 
   expect(line).toBeUndefined();
-  expect(session.lines()).toEqual([]);
+  expect(session.events()).toEqual([]);
   expect(recording.spoken()).toEqual([]);
 });
+
+function noteTool(run: (input: string) => Promise<string>): Tool {
+  return {
+    name: "note",
+    description: "Keep a note.",
+    kind: "read",
+    parse(input) {
+      return ok(input);
+    },
+    async run(input) {
+      return run(input);
+    },
+  };
+}

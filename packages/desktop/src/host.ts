@@ -1,4 +1,10 @@
-import { tryCatch, type Line, type Result, type Session } from "@caprice/core";
+import {
+  fail,
+  tryCatch,
+  type AssistantEvent,
+  type Result,
+  type Session,
+} from "@caprice/core";
 import type { Listener, Speaker } from "@caprice/voice";
 
 import type { PaceName, PaceNote } from "./pace.ts";
@@ -13,36 +19,58 @@ export async function sayAndSpeak(
   session: Session,
   speaker: Speaker,
   hostText: string,
+  signal: AbortSignal,
   pace?: TurnPace,
-): Promise<Result<Line>> {
-  const line = await timed(pace, "reply", () => session.say(hostText));
+): Promise<Result<AssistantEvent>> {
+  if (signal.aborted) {
+    session.cancel();
 
-  if (!line.ok) {
+    return fail("cancelled");
+  }
+
+  const onAbort = () => {
+    session.cancel();
+  };
+
+  signal.addEventListener("abort", onAbort, { once: true });
+
+  try {
+    const line = await timed(pace, "reply", () => session.say(hostText));
+
+    if (!line.ok) {
+      return line;
+    }
+
+    if (signal.aborted) {
+      return fail("cancelled");
+    }
+
+    if (line.value.text.length === 0) {
+      return line;
+    }
+
+    const spoken = await tryCatch(
+      voiced(pace, () => speaker.speak(line.value.text, signal)),
+      "the model request failed",
+    );
+
+    if (!spoken.ok) {
+      return spoken;
+    }
+
     return line;
+  } finally {
+    signal.removeEventListener("abort", onAbort);
   }
-
-  if (line.value.text.length === 0) {
-    return line;
-  }
-
-  const spoken = await tryCatch(
-    voiced(pace, () => speaker.speak(line.value.text)),
-    "the model request failed",
-  );
-
-  if (!spoken.ok) {
-    return spoken;
-  }
-
-  return line;
 }
 
 export async function listenAndSay(
   session: Session,
   listener: Listener,
   speaker: Speaker,
+  signal: AbortSignal,
   pace?: TurnPace,
-): Promise<Result<Line> | undefined> {
+): Promise<Result<AssistantEvent> | undefined> {
   const heard = await listener.listen();
   const text = heard.text.trim();
 
@@ -50,7 +78,7 @@ export async function listenAndSay(
     return undefined;
   }
 
-  return sayAndSpeak(session, speaker, text, pace);
+  return sayAndSpeak(session, speaker, text, signal, pace);
 }
 
 async function timed<T>(

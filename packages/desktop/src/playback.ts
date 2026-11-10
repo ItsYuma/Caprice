@@ -79,7 +79,23 @@ export function subscribePlayback(hear: (frame: Frame) => void): () => void {
   };
 }
 
-export async function playSpeech(bytes: Uint8Array): Promise<void> {
+export function stopPlayback(): void {
+  generation += 1;
+  const stop = activeStop;
+
+  activeStop = undefined;
+  stop?.();
+  publish(restFrame());
+}
+
+export async function playSpeech(
+  bytes: Uint8Array,
+  signal?: AbortSignal,
+): Promise<void> {
+  if (signal?.aborted) {
+    throw new Error("cancelled");
+  }
+
   if (bytes.byteLength === 0) {
     return;
   }
@@ -90,38 +106,61 @@ export async function playSpeech(bytes: Uint8Array): Promise<void> {
   activeStop = undefined;
   previous?.();
 
+  const onAbort = () => {
+    if (mine === generation) {
+      stopPlayback();
+    }
+  };
+
+  signal?.addEventListener("abort", onAbort, { once: true });
+
   let context: AudioContext | undefined;
 
   try {
     context = new AudioContext();
     await resumeContext(context);
+    throwIfCancelled(signal);
 
     if (mine !== generation) {
       return;
     }
 
     const audio = await context.decodeAudioData(copiedBytes(bytes));
+    throwIfCancelled(signal);
 
     if (mine !== generation) {
       return;
     }
 
     await playBuffer(context, audio, mine);
+    throwIfCancelled(signal);
   } catch (error) {
     if (mine === generation) {
       publish(restFrame());
     }
 
-    if (isPlaybackFailure(error)) {
+    if (isCancelled(error) || isPlaybackFailure(error)) {
       throw error;
     }
 
     throw new Error(playbackFailed);
   } finally {
+    signal?.removeEventListener("abort", onAbort);
+
     if (context !== undefined) {
       await closeContext(context);
     }
   }
+}
+
+function throwIfCancelled(signal: AbortSignal | undefined): void {
+  if (signal?.aborted) {
+    throw new Error("cancelled");
+  }
+}
+
+function isCancelled(value: unknown): value is Error {
+  return value instanceof Error && value.message === "cancelled";
 }
 
 function publish(frame: Frame): void {

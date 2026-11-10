@@ -10,10 +10,12 @@ import { listenAndSay } from "./host.ts";
 import {
   bindTalkButton,
   dragInsteadOfTalk,
+  bindCancel,
+  bindTalk,
   holdToTalk,
   isTalkChord,
-  isTalkRelease,
   pointerMoved,
+  releasesChord,
   talkChordLabel,
   talkChordShortcuts,
   talkDragDistance,
@@ -41,10 +43,17 @@ test("the talk chord is named once", () => {
   expect(isTalkChord({ ...chord, metaKey: true })).toBe(false);
   expect(isTalkChord({ ...chord, shiftKey: true })).toBe(false);
   expect(isTalkChord({ ...chord, repeat: true })).toBe(false);
-  expect(isTalkRelease({ code: "Space", key: " " })).toBe(true);
-  expect(isTalkRelease({ code: "AltLeft", key: "Alt" })).toBe(true);
-  expect(isTalkRelease({ code: "ControlLeft", key: "Control" })).toBe(true);
-  expect(isTalkRelease({ code: "KeyA", key: "a" })).toBe(false);
+  expect(releasesChord("alt", { code: "Space", key: " " })).toBe(true);
+  expect(releasesChord("ctrl", { code: "Space", key: " " })).toBe(true);
+  expect(releasesChord("alt", { code: "AltLeft", key: "Alt" })).toBe(true);
+  expect(releasesChord("ctrl", { code: "AltLeft", key: "Alt" })).toBe(false);
+  expect(releasesChord("ctrl", { code: "ControlLeft", key: "Control" })).toBe(
+    true,
+  );
+  expect(releasesChord("alt", { code: "ControlLeft", key: "Control" })).toBe(
+    false,
+  );
+  expect(releasesChord("alt", { code: "KeyA", key: "a" })).toBe(false);
 });
 
 test("holding the chord sends the heard line through say and the speaker", async () => {
@@ -58,7 +67,12 @@ test("holding the chord sends the heard line through say and the speaker", async
   const hold = holdToTalk(
     listener,
     () => {
-      done = listenAndSay(session, listener, recording.speaker).then(() => {});
+      done = listenAndSay(
+        session,
+        listener,
+        recording.speaker,
+        new AbortController().signal,
+      ).then(() => {});
 
       return done;
     },
@@ -77,9 +91,9 @@ test("holding the chord sends the heard line through say and the speaker", async
   await done;
   await Promise.resolve();
 
-  expect(session.lines()[0]).toEqual({ who: "host", text: "yo" });
+  expect(session.events()[0]).toEqual({ kind: "user", text: "yo" });
   expect(recording.spoken()).toEqual(["No model yet. You said: yo"]);
-  expect(phases).toEqual(["listening", "busy", "idle"]);
+  expect(phases).toEqual(["armed", "listening", "busy", "idle"]);
 });
 
 test("a tap does not send", () => {
@@ -109,11 +123,12 @@ test("a tap does not send", () => {
   );
 
   hold.press();
-  expect(hold.phase()).toBe("idle");
+  expect(hold.phase()).toBe("armed");
   hold.release();
   start();
   expect(turns).toBe(0);
-  expect(phases).toEqual([]);
+  expect(hold.phase()).toBe("idle");
+  expect(phases).toEqual(["armed", "idle"]);
 
   hold.press();
   start();
@@ -130,6 +145,7 @@ test("a move before listening drags the window and does not send", () => {
   expect(pointerMoved(0, 0, talkDragDistance + 1, 0)).toBe(true);
   expect(pointerMoved(2, 5, 8, 11)).toBe(true);
   expect(dragInsteadOfTalk("idle", true)).toBe(true);
+  expect(dragInsteadOfTalk("armed", true)).toBe(true);
   expect(dragInsteadOfTalk("busy", true)).toBe(true);
   expect(dragInsteadOfTalk("listening", true)).toBe(false);
   expect(dragInsteadOfTalk("idle", false)).toBe(false);
@@ -257,6 +273,102 @@ function press(type: string, x: number, y: number): Event {
   });
 }
 
+test("an unrelated modifier does not release the active chord", () => {
+  const target = new EventTarget();
+  const phases: TalkPhase[] = [];
+  let releases = 0;
+
+  const hold = holdToTalk(
+    captureListener({
+      async begin() {},
+      async finish() {
+        return "";
+      },
+      async cancel() {},
+    }),
+    () =>
+      new Promise((resolve) => {
+        resolve();
+      }),
+    (phase) => {
+      phases.push(phase);
+    },
+    beginNow,
+  );
+
+  bindTalk(hold, target);
+  target.dispatchEvent(key("keydown", { code: "Space", ctrlKey: true }));
+  expect(hold.phase()).toBe("listening");
+  target.dispatchEvent(key("keyup", { code: "AltLeft", key: "Alt" }));
+  expect(hold.phase()).toBe("listening");
+  expect(releases).toBe(0);
+  target.dispatchEvent(key("keyup", { code: "ControlLeft", key: "Control" }));
+  expect(hold.phase()).toBe("busy");
+});
+
+test("a rejected turn returns to idle", async () => {
+  const phases: TalkPhase[] = [];
+
+  const hold = holdToTalk(
+    captureListener({
+      async begin() {},
+      async finish() {
+        return "";
+      },
+      async cancel() {},
+    }),
+    () => Promise.reject(new Error("no")),
+    (phase) => {
+      phases.push(phase);
+    },
+    beginNow,
+  );
+
+  hold.press();
+  await Promise.resolve();
+  await Promise.resolve();
+  expect(hold.phase()).toBe("idle");
+  expect(phases).toEqual(["armed", "listening", "idle"]);
+});
+
+test("escape cancels through the bound target", () => {
+  const target = new EventTarget();
+  let cancels = 0;
+
+  const stop = bindCancel(target, () => {
+    cancels += 1;
+  });
+
+  target.dispatchEvent(key("keydown", { code: "Escape" }));
+  target.dispatchEvent(key("keydown", { code: "Escape", repeat: true }));
+  target.dispatchEvent(key("keydown", { code: "KeyK" }));
+  expect(cancels).toBe(1);
+  stop();
+  target.dispatchEvent(key("keydown", { code: "Escape" }));
+  expect(cancels).toBe(1);
+});
+
+function key(
+  type: string,
+  fields: {
+    code: string;
+    key?: string;
+    altKey?: boolean;
+    ctrlKey?: boolean;
+    repeat?: boolean;
+  },
+): Event {
+  return Object.assign(new Event(type, { cancelable: true }), {
+    code: fields.code,
+    key: fields.key ?? "",
+    altKey: fields.altKey ?? false,
+    ctrlKey: fields.ctrlKey ?? false,
+    metaKey: false,
+    shiftKey: false,
+    repeat: fields.repeat ?? false,
+  });
+}
+
 function beginNow(run: () => void): () => void {
   run();
 
@@ -271,6 +383,7 @@ function heldCapture() {
     async finish() {
       return transcript;
     },
+    async cancel() {},
   };
 
   return {

@@ -49,7 +49,12 @@ function closeWindow(): void {
     return;
   }
 
-  void getCurrentWindow().close();
+  void getCurrentWindow()
+    .close()
+    .then(
+      () => undefined,
+      () => undefined,
+    );
 }
 
 function dragWindow(): void {
@@ -57,5 +62,10 @@ function dragWindow(): void {
     return;
   }
 
-  void getCurrentWindow().startDragging();
+  void getCurrentWindow()
+    .startDragging()
+    .then(
+      () => undefined,
+      () => undefined,
+    );
 }
