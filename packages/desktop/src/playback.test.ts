@@ -7,6 +7,7 @@ import {
   subscribePlayback,
   type Frame,
 } from "./playback.ts";
+import { radioReply } from "./radio.ts";
 
 const originalAudioContext = Object.getOwnPropertyDescriptor(
   globalThis,
@@ -101,7 +102,9 @@ test("playback resolves when the buffer ends", async () => {
     expect(added.map((frame) => frame.live)).toEqual([true, false]);
     expect(added[0]?.heard).toBe(1);
     expect(added[0]?.rate).toBe(1000);
-    expect(Array.from(added[0]?.samples ?? [])).toEqual([0, 0.5, -1, 0.25]);
+    expect(Array.from(added[0]?.samples ?? [])).toEqual(
+      Array.from(radioReply(new Float32Array([0, 0.5, -1, 0.25]), 1000)),
+    );
     expect(ignored).toBe(marked);
     expect(ScriptedContext.latest?.closed).toBe(1);
     expect(ScriptedContext.latest?.started).toBe(1);
@@ -224,11 +227,15 @@ let script: Script = "play";
 class ScriptedBuffer {
   readonly sampleRate: number;
   readonly duration: number;
+  readonly length: number;
+  readonly numberOfChannels: number;
   readonly channel: Float32Array;
 
-  constructor(channel: Float32Array, sampleRate: number) {
+  constructor(channel: Float32Array, sampleRate: number, channels = 1) {
     this.channel = channel;
     this.sampleRate = sampleRate;
+    this.length = channel.length;
+    this.numberOfChannels = channels;
     this.duration = channel.length / sampleRate;
   }
 
@@ -298,6 +305,10 @@ class ScriptedContext {
     this.closed += 1;
 
     return Promise.resolve();
+  }
+
+  createBuffer(channels: number, length: number, rate: number): ScriptedBuffer {
+    return new ScriptedBuffer(new Float32Array(length), rate, channels);
   }
 
   decodeAudioData(buffer: ArrayBuffer): Promise<ScriptedBuffer> {

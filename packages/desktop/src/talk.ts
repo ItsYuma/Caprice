@@ -35,6 +35,7 @@ export type TalkPhase = "idle" | "armed" | "listening" | "busy";
 
 export type TalkHold = {
   press: () => void;
+  pressNow: () => void;
   release: () => void;
   phase: () => TalkPhase;
 };
@@ -176,6 +177,22 @@ export function holdToTalk(
       if (state.status === "armed") {
         state = { status: "armed", cancel };
       }
+    },
+    pressNow() {
+      if (state.status === "listening" || state.status === "busy") {
+        return;
+      }
+
+      if (state.status === "armed") {
+        state.cancel();
+        begin();
+
+        return;
+      }
+
+      state = { status: "armed", cancel: () => {} };
+      onPhase("armed");
+      begin();
     },
     release() {
       if (state.status === "armed") {

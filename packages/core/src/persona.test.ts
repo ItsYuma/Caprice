@@ -42,6 +42,10 @@ test("league skill tells her the request is enough", () => {
   expect(play).toContain("Pick Yasuo");
   expect(play).toContain("Do not ask them to confirm");
   expect(play).toContain("champion-summary.json");
+  expect(play).toContain("Mock the host");
+  expect(play).toContain("Do not read the event back");
+  expect(play).toContain('starts with "Lobby."');
+  expect(play).toContain("Do not read the list back");
 });
 
 test("personaText rejects a skill with no voice", () => {

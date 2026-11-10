@@ -58,9 +58,9 @@ Rust obtains the brain endpoint and credentials from configuration. The page sen
 
 Push-to-talk progresses through arming, recording, finishing, and the reply. Microphone ownership remains in Rust until the utterance is finished or cancelled. Streaming engines receive incremental resampled audio while held; whole-clip engines transcribe after release. No incomplete transcript is used to execute actions after a recording or feed failure.
 
-The page plays returned audio. Escape cancels capture, the assistant turn, synthesis, and playback. Cancelling playback also prevents a pending synthesis result from starting later. The `hear`, `reply`, and `voice` times separate transcription after release, model/tool work, and synthesis before playback.
+The page decodes the returned audio, applies the reply pitch, echo, and tremolo (`reply-color.md`), and plays that buffer. Escape cancels capture, the assistant turn, synthesis, and playback. Cancelling playback also prevents a pending synthesis result from starting later. The `hear`, `reply`, and `voice` times separate transcription after release, model/tool work, and synthesis before playback.
 
-The frameless window opens at the top left of the work area. Hold Alt+Space, Ctrl+Space, or the box to speak. Dragging moves it; a tap does not send. Shortcuts are local to the window.
+Nothing is drawn on the work area. The shell icon is the system tray. The page runs off that area (`tray-presence.md`). Hold Alt+Space or Ctrl+Space from any focused app (`talk-chord.md`). Release sends. A tap does not send. The tray menu stops the turn or quits.
 
 ## Games
 
@@ -69,3 +69,5 @@ An integration owns its tools and game instructions. The playing list selects in
 Rust's League facade delegates credential discovery, request parsing, and HTTP exchange to separate modules. Blocking process discovery runs off the async executor. Credentials remain in Rust, requests stay on loopback, redirects and retries are disabled, and response reads are bounded.
 
 Live commentary is League's follower: a poll of that same live-client read. One new fact becomes a host line.
+
+A spoken queue, cancel, accept, ban, or pick is a lobby plan. The desktop sends those client calls. `direct` keeps that exchange and refuses tools. A later step from the plan uses the same remark gate.

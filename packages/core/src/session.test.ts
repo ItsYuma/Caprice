@@ -807,6 +807,85 @@ test("notice drops a tool call and does not run it", async () => {
   expect(session.events()).toEqual([]);
 });
 
+test("direct keeps the exchange, refuses tools, and stores the fallback", async () => {
+  let tools = -1;
+  let saw = "";
+
+  const session = openSession(
+    "p",
+    {
+      async complete(turn) {
+        const latest = turn.events.at(-1);
+        tools = turn.tools.length;
+        saw = latest?.kind === "user" ? latest.text : "";
+
+        return ok({ kind: "message", text: "Queue's up." });
+      },
+    },
+    [note(async () => "ran")],
+    [
+      { kind: "user", text: "earlier" },
+      { kind: "assistant", text: "yo" },
+    ],
+  );
+
+  const line = await session.direct(
+    "find a match",
+    "Lobby. Started the queue.",
+    "Queue's up.",
+  );
+
+  expect(tools).toBe(0);
+  expect(saw).toBe("Lobby. Started the queue.");
+  expect(line).toEqual({
+    ok: true,
+    value: { kind: "assistant", text: "Queue's up." },
+  });
+  expect(session.events()).toEqual([
+    { kind: "user", text: "earlier" },
+    { kind: "assistant", text: "yo" },
+    { kind: "user", text: "find a match" },
+    { kind: "assistant", text: "Queue's up." },
+  ]);
+
+  let runs = 0;
+
+  const fallback = openSession(
+    "p",
+    {
+      async complete() {
+        return ok({
+          kind: "calls",
+          calls: [{ id: "1", name: "note", input: "hi" }],
+        });
+      },
+    },
+    [
+      note(async () => {
+        runs += 1;
+
+        return "ran";
+      }),
+    ],
+  );
+
+  const spared = await fallback.direct(
+    "ban zed",
+    "Lobby. Will ban Zed.",
+    "I'll ban Zed.",
+  );
+
+  expect(runs).toBe(0);
+  expect(spared).toEqual({
+    ok: true,
+    value: { kind: "assistant", text: "I'll ban Zed." },
+  });
+  expect(fallback.events()).toEqual([
+    { kind: "user", text: "ban zed" },
+    { kind: "assistant", text: "I'll ban Zed." },
+  ]);
+});
+
 function note(run: (input: string) => Promise<string>): Tool {
   return {
     name: "note",

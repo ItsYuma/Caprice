@@ -11,7 +11,8 @@ test("the shell lists league tools and its live follower", () => {
     "league_live",
     "league_lcu",
   ]);
-  expect(games.remarks).toHaveLength(1);
+  expect(games.remarks).toHaveLength(2);
+  expect(games.lobby).toBeDefined();
 });
 
 test("a page outside the shell keeps the tools and skips the follower", () => {
@@ -22,4 +23,5 @@ test("a page outside the shell keeps the tools and skips the follower", () => {
     "league_lcu",
   ]);
   expect(games.remarks).toEqual([]);
+  expect(games.lobby).toBeUndefined();
 });

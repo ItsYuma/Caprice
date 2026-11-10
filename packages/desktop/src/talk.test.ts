@@ -96,6 +96,44 @@ test("holding the chord sends the heard line through say and the speaker", async
   expect(phases).toEqual(["armed", "listening", "busy", "idle"]);
 });
 
+test("a shell press listens immediately and a second one does not", () => {
+  let start = () => {};
+  let turns = 0;
+  const phases: TalkPhase[] = [];
+
+  const hold = holdToTalk(
+    captureListener(heldCapture().capture),
+    () => {
+      turns += 1;
+
+      return Promise.resolve();
+    },
+    (phase) => {
+      phases.push(phase);
+    },
+    (run) => {
+      start = run;
+
+      return () => {
+        start = () => {};
+      };
+    },
+  );
+
+  hold.press();
+  expect(hold.phase()).toBe("armed");
+  hold.pressNow();
+  expect(hold.phase()).toBe("listening");
+  expect(turns).toBe(1);
+  start();
+  expect(turns).toBe(1);
+  expect(phases).toEqual(["armed", "listening"]);
+  hold.pressNow();
+  expect(turns).toBe(1);
+  hold.release();
+  expect(hold.phase()).toBe("busy");
+});
+
 test("a tap does not send", () => {
   const manual = heldCapture();
   const listener = captureListener(manual.capture);

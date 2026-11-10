@@ -3,7 +3,7 @@ import type { Remark } from "./matchWatch.ts";
 
 export function remarkCue(match: LiveMatch, remark: Remark): string {
   return [
-    "Live match. Say one short line out loud to the host. Do not call a tool. Use only the event.",
+    "Live match. One or two short sentences out loud. Mock the host about the event, or enjoy it. Use the event and the score line. Do not call a tool. Do not add a fact. Do not read it back.",
     "",
     statusLine(match),
     `Event: ${eventLine(remark)}`,

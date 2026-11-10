@@ -1,3 +1,5 @@
+import { radioReply } from "./radio.ts";
+
 const playbackFailed = "could not play speech";
 
 const playheadSeconds = 0.032;
@@ -369,6 +371,36 @@ function copiedBytes(bytes: Uint8Array): ArrayBuffer {
   return copy;
 }
 
+function coloredBuffer(context: AudioContext, audio: AudioBuffer): AudioBuffer {
+  const rate = audio.sampleRate;
+  const channels = audio.numberOfChannels;
+
+  if (!(rate > 0) || audio.length === 0 || channels < 1) {
+    return audio;
+  }
+
+  const colored: Float32Array[] = [];
+  let length = 0;
+
+  for (let channel = 0; channel < channels; channel += 1) {
+    const next = radioReply(audio.getChannelData(channel), rate);
+    colored.push(next);
+    length = next.length;
+  }
+
+  const buffer = context.createBuffer(channels, length, rate);
+
+  for (let channel = 0; channel < channels; channel += 1) {
+    const next = colored[channel];
+
+    if (next !== undefined) {
+      buffer.getChannelData(channel).set(next);
+    }
+  }
+
+  return buffer;
+}
+
 function playBuffer(
   context: AudioContext,
   audio: AudioBuffer,
@@ -427,11 +459,12 @@ function playBuffer(
     };
 
     try {
-      const samples = audio.getChannelData(0).slice();
-      const rate = audio.sampleRate;
-      const duration = audio.duration;
+      const playable = coloredBuffer(context, audio);
+      const samples = playable.getChannelData(0).slice();
+      const rate = playable.sampleRate;
+      const duration = playable.duration;
       const startedAt = context.currentTime;
-      source.buffer = audio;
+      source.buffer = playable;
       source.connect(context.destination);
       source.start();
 

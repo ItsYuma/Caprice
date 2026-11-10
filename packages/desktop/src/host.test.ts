@@ -245,6 +245,74 @@ test("a cancelled remark stays quiet", async () => {
   expect(session.events()).toEqual([]);
 });
 
+test("a lobby line is answered without tools and kept", async () => {
+  let runs = 0;
+
+  const session = openSession(
+    "p",
+    {
+      async complete(turn) {
+        const latest = turn.events.at(-1);
+
+        if (latest?.kind === "user" && latest.text.startsWith("Lobby.")) {
+          return ok({ kind: "message", text: "Queue's up." });
+        }
+
+        return ok({ kind: "message", text: "from say" });
+      },
+    },
+    [
+      noteTool(async () => {
+        runs += 1;
+
+        return "ran";
+      }),
+    ],
+  );
+
+  const recording = recordingSpeaker();
+
+  const routed = await listenAndSay(
+    session,
+    scriptedListener(["find a match"]),
+    recording.speaker,
+    signal,
+    undefined,
+    async (text) => {
+      if (text === "find a match") {
+        return { cue: "Lobby. Started the queue.", fallback: "Queue's up." };
+      }
+
+      return undefined;
+    },
+  );
+
+  expect(routed).toEqual({
+    ok: true,
+    value: { kind: "assistant", text: "Queue's up." },
+  });
+  expect(runs).toBe(0);
+  expect(recording.spoken()).toEqual(["Queue's up."]);
+  expect(session.events()).toEqual([
+    { kind: "user", text: "find a match" },
+    { kind: "assistant", text: "Queue's up." },
+  ]);
+
+  const open = await listenAndSay(
+    session,
+    scriptedListener(["hello"]),
+    recording.speaker,
+    signal,
+    undefined,
+    async () => undefined,
+  );
+
+  expect(open).toEqual({
+    ok: true,
+    value: { kind: "assistant", text: "from say" },
+  });
+});
+
 function noteTool(run: (input: string) => Promise<string>): Tool {
   return {
     name: "note",

@@ -72,7 +72,7 @@ export function readSpeechCredit(
 
 export function speechHint(inShell: boolean): string {
   if (inShell) {
-    return `Hold ${talkChordLabel()}. Release to send. Drag the box to move it.`;
+    return `Hold ${talkChordLabel()}. Release to send.`;
   }
 
   return modelUnavailable;

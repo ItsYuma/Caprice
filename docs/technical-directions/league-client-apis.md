@@ -14,4 +14,6 @@ Transport accepts only a parsed loopback URL with an explicit port. The local ce
 
 The desktop also polls `/liveclientdata/allgamedata` while the window is open. That poll is the live commentary feed. It uses this command and these limits. The model does not choose the poll, and the payload is not kept as a tool result.
 
+A spoken queue, cancel, accept, ban, or pick does not go through the model. The desktop parses it, sends the client calls, and asks the model only for the line. That exchange is kept. A later step, such as the ready check or the ban turn, is spoken through the remark gate and is not kept. Champion names are read from `champion-summary.json` for that client session. The desktop does not start the League executable. The choice is `docs/technical-directions/lobby-plan.md`.
+
 Set aside: the Riot developer API, starting League, bundled champion tables, a plugin loader, and an agent framework solely for these calls. Typed tool events allow native function calling without tying game transport to a model provider.

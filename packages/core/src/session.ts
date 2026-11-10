@@ -43,6 +43,11 @@ export type Session = {
   tools: () => readonly Tool[];
   say: (hostText: string) => Promise<Result<AssistantEvent>>;
   notice: (hostText: string) => Promise<Result<AssistantEvent>>;
+  direct: (
+    hostText: string,
+    cue: string,
+    fallback: string,
+  ) => Promise<Result<AssistantEvent>>;
   cancel: () => void;
 };
 
@@ -335,6 +340,87 @@ export function openSession(
         }
 
         return ok({ kind: "assistant", text: reply.value.text });
+      } finally {
+        if (current(mine)) {
+          turn = { status: "idle" };
+        }
+      }
+    },
+    async direct(hostText: string, cue: string, fallback: string) {
+      if (turn.status !== "idle") {
+        return fail("still working");
+      }
+
+      generation += 1;
+      const mine = generation;
+      const controller = new AbortController();
+
+      turn = { status: "running", generation: mine, controller };
+
+      const request = clipText(hostText, threadSizeLimit);
+      const aside = clipText(cue, threadSizeLimit);
+      const spare = clipText(fallback, threadSizeLimit);
+
+      events.push({ kind: "user", text: request });
+      trimTranscript(events);
+
+      try {
+        const seen = copyEvents(events);
+
+        if (aside.length > 0) {
+          seen.push({ kind: "user", text: aside });
+        }
+
+        const reply = await completeTurn(
+          mine,
+          controller.signal,
+          request,
+          true,
+          [],
+          seen,
+        );
+
+        if (!running(mine)) {
+          return fail("cancelled");
+        }
+
+        if (reply.ok && reply.value.kind === "message") {
+          const text = reply.value.text.trim();
+
+          if (text.length > 0) {
+            const assistant: AssistantEvent = {
+              kind: "assistant",
+              text: reply.value.text,
+            };
+
+            events.push(assistant);
+            trimTranscript(events);
+
+            return ok(assistant);
+          }
+        }
+
+        if (!running(mine)) {
+          return fail("cancelled");
+        }
+
+        if (spare.length === 0) {
+          if (!reply.ok) {
+            return reply;
+          }
+
+          return fail("the model called a tool");
+        }
+
+        const assistant: AssistantEvent = {
+          kind: "assistant",
+          text: spare,
+        };
+
+        events.push(assistant);
+        trimTranscript(events);
+
+        return ok(assistant);
       } finally {
         if (current(mine)) {
           turn = { status: "idle" };

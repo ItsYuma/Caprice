@@ -16,26 +16,6 @@ export type PaceSlot = {
   current: PaceNote;
 };
 
-export function formatPace(ms: number): string {
-  const safe = ms < 0 ? 0 : ms;
-
-  if (safe < 1000) {
-    return `${Math.round(safe)}ms`;
-  }
-
-  const seconds = safe / 1000;
-
-  if (seconds < 10) {
-    return `${seconds.toFixed(1)}s`;
-  }
-
-  return `${Math.round(seconds)}s`;
-}
-
-export function paceText(marks: readonly PaceMark[]): string {
-  return marks.map((mark) => `${mark.name} ${formatPace(mark.ms)}`).join(" · ");
-}
-
 export function paceListener(
   listener: PushListener,
   note: PaceSlot,

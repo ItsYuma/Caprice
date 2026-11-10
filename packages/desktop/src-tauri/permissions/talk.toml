@@ -1,0 +1,4 @@
+[[permission]]
+identifier = "allow-talk-keys"
+description = "Arm and disarm the global talk hold."
+commands.allow = ["talk_arm", "talk_disarm"]

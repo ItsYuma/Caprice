@@ -15,7 +15,9 @@ test("the cue is the fact, and the fallback is a short line", () => {
   });
 
   expect(cue.startsWith("Live match.")).toBe(true);
+  expect(cue).toContain("Mock the host");
   expect(cue).toContain("Do not call a tool.");
+  expect(cue).toContain("Do not read it back.");
   expect(cue).toContain(
     "Minute 8. You are Ahri, mid, level 7, 2/1/0, 50 cs, 900 gold in items.",
   );

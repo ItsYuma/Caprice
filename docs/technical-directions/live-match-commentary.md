@@ -1,6 +1,6 @@
 # Live match commentary
 
-The desktop polls the live client and speaks one line about what just changed. The model writes the line. A fixed sentence is only the fallback when that call fails.
+The desktop polls the live client and speaks one line about what just changed. The model writes that line as a jab or a cheer. It does not read the fact back, and it does not add a kill, a score, or an objective the poll did not state. A fixed sentence is only the fallback when that call fails.
 
 The poll is `league_live` on `/liveclientdata/allgamedata`. The event list is the source for kills, deaths, objectives, and the result. The score is a backup when it moves and the event list stays quiet for one more poll, so a late event still gets the names and a score jump is not also a second line. One poll speaks at most one fact. The newest, highest-priority fact wins.
 

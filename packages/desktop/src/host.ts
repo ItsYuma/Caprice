@@ -15,6 +15,10 @@ export type TurnPace = {
   watchVoice: (ready: (ms: number) => void) => () => void;
 };
 
+export type TurnDirector = (
+  text: string,
+) => Promise<{ cue: string; fallback: string } | undefined>;
+
 export async function sayAndSpeak(
   session: Session,
   speaker: Speaker,
@@ -64,18 +68,96 @@ export async function sayAndSpeak(
   }
 }
 
+export async function directAndSpeak(
+  session: Session,
+  speaker: Speaker,
+  hostText: string,
+  cue: string,
+  fallback: string,
+  signal: AbortSignal,
+  pace?: TurnPace,
+): Promise<Result<AssistantEvent>> {
+  if (signal.aborted) {
+    session.cancel();
+
+    return fail("cancelled");
+  }
+
+  const onAbort = () => {
+    session.cancel();
+  };
+
+  signal.addEventListener("abort", onAbort, { once: true });
+
+  try {
+    const line = await timed(pace, "reply", () =>
+      session.direct(hostText, cue, fallback),
+    );
+
+    if (!line.ok) {
+      return line;
+    }
+
+    if (signal.aborted) {
+      return fail("cancelled");
+    }
+
+    const say = spokenLine(line.value.text, fallback);
+
+    if (say.length === 0) {
+      return line;
+    }
+
+    const spoken = await tryCatch(
+      voiced(pace, () => speaker.speak(say, signal)),
+      "the model request failed",
+    );
+
+    if (!spoken.ok) {
+      return spoken;
+    }
+
+    return line;
+  } finally {
+    signal.removeEventListener("abort", onAbort);
+  }
+}
+
 export async function listenAndSay(
   session: Session,
   listener: Listener,
   speaker: Speaker,
   signal: AbortSignal,
   pace?: TurnPace,
+  direct?: TurnDirector,
 ): Promise<Result<AssistantEvent> | undefined> {
   const heard = await listener.listen();
   const text = heard.text.trim();
 
   if (text.length === 0) {
     return undefined;
+  }
+
+  if (direct !== undefined) {
+    const route = await direct(text);
+
+    if (signal.aborted) {
+      session.cancel();
+
+      return fail("cancelled");
+    }
+
+    if (route !== undefined) {
+      return directAndSpeak(
+        session,
+        speaker,
+        text,
+        route.cue,
+        route.fallback,
+        signal,
+        pace,
+      );
+    }
   }
 
   return sayAndSpeak(session, speaker, text, signal, pace);
@@ -138,6 +220,16 @@ function fallbackWords(line: Result<AssistantEvent>, fallback: string): string {
     line.error.message === "still working"
   ) {
     return "";
+  }
+
+  return spokenWords(fallback);
+}
+
+function spokenLine(text: string, fallback: string): string {
+  const line = spokenWords(text);
+
+  if (line.length > 0) {
+    return line;
   }
 
   return spokenWords(fallback);

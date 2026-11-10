@@ -1,27 +1,7 @@
 import { captureListener } from "@caprice/voice";
 import { expect, test } from "bun:test";
 
-import {
-  formatPace,
-  paceListener,
-  paceText,
-  type PaceMark,
-  type PaceSlot,
-} from "./pace.ts";
-
-test("pace text names each wait", () => {
-  expect(formatPace(0)).toBe("0ms");
-  expect(formatPace(240)).toBe("240ms");
-  expect(formatPace(1200)).toBe("1.2s");
-  expect(formatPace(12400)).toBe("12s");
-  expect(
-    paceText([
-      { name: "hear", ms: 1400 },
-      { name: "reply", ms: 400 },
-      { name: "voice", ms: 8100 },
-    ]),
-  ).toBe("hear 1.4s · reply 400ms · voice 8.1s");
-});
+import { paceListener, type PaceMark, type PaceSlot } from "./pace.ts";
 
 test("a broken clock still lets the hold finish", async () => {
   let finished = false;

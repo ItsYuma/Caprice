@@ -19,9 +19,7 @@ test("the window is the box and hides the conversation", () => {
       talkPhase="idle"
       hint="Hold Alt+Space or Ctrl+Space. Release to send."
       credit="Voice by Underdog Woof"
-      pace=""
       step=""
-      stepAt={0}
     />,
   );
 
@@ -36,7 +34,8 @@ test("the window is the box and hides the conversation", () => {
   expect(html).toContain('id="problem"');
   expect(html).toContain("the model request failed");
   expect(html).toContain("Voice by Underdog Woof");
-  expect(html).toContain("&gt; capri:");
+  expect(html).not.toContain("&gt; capri:");
+  expect(html).not.toContain('id="pace"');
   expect(html).not.toContain('id="thinking"');
   expect(html).not.toContain("hair");
   expect(html).not.toContain("Show text");
@@ -53,14 +52,12 @@ test("thinking is the only line while she works", () => {
       talkPhase="busy"
       hint=""
       credit=""
-      pace=""
       step=""
-      stepAt={0}
     />,
   );
 
   expect(html).toContain("hud-chamfer-box");
-  expect(html).toContain("&gt; capri:");
+  expect(html).not.toContain("&gt; capri:");
   expect(html).toContain("[PROCESSING...]");
   expect(html).toContain(">thinking<");
   expect(presenceMode("busy", false)).toBe("thinking");
@@ -70,7 +67,7 @@ test("thinking is the only line while she works", () => {
   expect(presenceMode("armed", false)).toBe("idle");
 });
 
-test("the box shows where the turn spent time", () => {
+test("the box names the current step", () => {
   const html = renderToStaticMarkup(
     <CapricePage
       problem=""
@@ -78,16 +75,14 @@ test("the box shows where the turn spent time", () => {
       talkPhase="busy"
       hint=""
       credit=""
-      pace="hear 1.4s · reply 400ms"
       step="voice"
-      stepAt={0}
     />,
   );
 
   expect(html).toContain("[VOICE...]");
-  expect(html).toContain('id="thinking">voice<');
-  expect(html).toContain('id="pace"');
-  expect(html).toContain("hear 1.4s · reply 400ms");
+  expect(html).not.toContain("&gt; capri:");
+  expect(html).not.toContain('id="pace"');
+  expect(html).not.toContain("1.4s");
   expect(html).not.toContain("hello");
 });
 

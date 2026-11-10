@@ -276,9 +276,9 @@ test("speech credit is empty outside the shell and kept from the command", async
   ).resolves.toBe("");
 });
 
-test("the shell hint says to drag the box", () => {
+test("the shell hint says how to talk", () => {
   expect(speechHint(true)).toBe(
-    "Hold Alt+Space or Ctrl+Space. Release to send. Drag the box to move it.",
+    "Hold Alt+Space or Ctrl+Space. Release to send.",
   );
   expect(speechHint(false)).toBe(modelUnavailable);
 });

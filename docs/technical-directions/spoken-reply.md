@@ -6,7 +6,7 @@ A capri line is spoken by one reply engine. `CAPRICE_TTS_ENGINE` selects it. Emp
 
 `CAPRICE_TTS_URL` is the full URL. `CAPRICE_TTS_MODEL` is the `model` field. The body is `{ model, input }`. `CAPRICE_TTS_VOICE` adds `voice` only when it is non-empty. `CAPRICE_TTS_API_KEY` is an optional bearer token. An empty key sends no authorization header. The source has no host, port, or voice id.
 
-Each capri line is one POST. The response bytes are what the page plays. Inside the Tauri window, Rust posts and returns those bytes as base64. Outside it, the page posts only when both the URL and the model name are set. Otherwise speaking rejects with `speech is not configured`. Blank text does not post.
+Each capri line is one POST. The response bytes are the synthesis result. The page decodes them and colors the samples before playback (`reply-color.md`). Inside the Tauri window, Rust posts and returns those bytes as base64. Outside it, the page posts only when both the URL and the model name are set. Otherwise speaking rejects with `speech is not configured`. Blank text does not post.
 
 ## Woof
 

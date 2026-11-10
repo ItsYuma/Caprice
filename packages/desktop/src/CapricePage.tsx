@@ -10,9 +10,7 @@ export type CapricePageProps = {
   talkPhase: TalkPhase;
   hint: string;
   credit: string;
-  pace: string;
   step: PaceName | "";
-  stepAt: number;
 };
 
 export function CapricePage(props: CapricePageProps) {
@@ -34,9 +32,7 @@ export function CapricePage(props: CapricePageProps) {
           hint={props.hint}
           problem={props.problem}
           credit={props.credit}
-          pace={props.pace}
           step={props.step}
-          stepAt={props.stepAt}
           drag={dragWindow}
         />
       </div>

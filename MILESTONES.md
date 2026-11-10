@@ -25,15 +25,15 @@ Done.
 
 Done.
 
-- Hold Alt+Space or Ctrl+Space while the window is focused, or hold the box. A tap does not send. Release sends the transcript
+- Hold Alt+Space or Ctrl+Space. A tap does not send. Release sends the transcript
 - `listenAndSay` passes that text to `say`, then the page plays the capri line
-- The box keeps `hear`, `reply`, and `voice` times for the last turn. `hear` is transcription after release. `voice` ends when the audio bytes are ready
+- `hear` is transcription after release. `voice` ends when the audio bytes are ready
 - The listener is `captureListener`. Inside the Tauri window, Rust records the default microphone and a speech worker transcribes it. The worker loads the selected engine once and stays until the window exits
 - Empty `CAPRICE_STT_ENGINE`, or `bark`, loads Underdog Bark 3.0 Pro from `CAPRICE_STT_MODEL` (`config.json`, `tokenizer.json`, `model.safetensors`) and transcribes the clip on release. `bark-stream` transcribes that checkpoint while the key is held. `onnx` loads the int8 ONNX directory. `parakeet` streams a Parakeet Unified English 0.6B GGUF. No model path is hardcoded
 - Spoken replies use `CAPRICE_TTS_ENGINE`. Empty or `http` posts to `CAPRICE_TTS_URL` with `CAPRICE_TTS_MODEL`. Optional `CAPRICE_TTS_VOICE` and `CAPRICE_TTS_API_KEY`. `woof` is a resident `python3` child pointed at the Underdog Woof directory in `CAPRICE_TTS_WOOF`. Rust returns the bytes. The page plays them
 - `scriptedListener` and `recordingSpeaker` stay for tests
 - No microphone name, sample rate, host, or model id is hardcoded. Caprice does not shell out to Handy or Parakeet and does not use the Web Speech API
-- WebKitGTK does not matter for speech. A window manager can still steal Alt+Space. Ctrl+Space still works. The button still works
+- WebKitGTK does not matter for speech. Alt+Space and Ctrl+Space are a global hook while the shell is open. On macOS it needs Accessibility. On Linux it needs the `input` group
 
 ## 3. One computer tool
 
