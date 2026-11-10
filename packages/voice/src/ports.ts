@@ -7,7 +7,7 @@ export type Listener = {
 };
 
 export type Speaker = {
-  speak: (text: string) => Promise<void>;
+  speak: (text: string, signal: AbortSignal) => Promise<void>;
 };
 
 export function scriptedListener(lines: readonly string[]): Listener {
@@ -38,7 +38,11 @@ export function recordingSpeaker(): Recording {
 
   return {
     speaker: {
-      async speak(text: string) {
+      async speak(text, signal) {
+        if (signal.aborted) {
+          throw new Error("cancelled");
+        }
+
         said.push(text);
       },
     },
