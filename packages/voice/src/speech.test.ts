@@ -19,6 +19,7 @@ test("listen begins and waits until release", async () => {
 
       return "  wake up  ";
     },
+    async cancel() {},
   });
 
   const pending = listener.listen();
@@ -135,6 +136,7 @@ test("a string from finish rejects listen with that message", async () => {
     finish() {
       return Promise.reject("not listening");
     },
+    async cancel() {},
   });
 
   const pending = listener.listen();
@@ -142,6 +144,99 @@ test("a string from finish rejects listen with that message", async () => {
   await Promise.resolve();
   listener.release();
   await expect(pending).rejects.toThrow("not listening");
+});
+
+test("cancel rejects the listen and does not transcribe it", async () => {
+  const capture = deferredCapture();
+  capture.transcript("stale");
+  const listener = captureListener(capture.capture);
+  const pending = listener.listen();
+
+  listener.cancel();
+  await expect(pending).rejects.toThrow("cancelled");
+  expect(capture.finishes()).toBe(0);
+  expect(capture.cancels()).toBe(0);
+  capture.allowBegin();
+  await flush();
+  expect(capture.finishes()).toBe(0);
+  expect(capture.cancels()).toBe(1);
+
+  capture.transcript("fresh");
+  const again = listener.listen();
+
+  capture.allowBegin();
+  await flush();
+  listener.release();
+  await expect(again).resolves.toEqual({ text: "fresh" });
+  expect(capture.finishes()).toBe(1);
+  expect(capture.cancels()).toBe(1);
+});
+
+test("cancel before listen does not finish the next clip early", async () => {
+  const capture = deferredCapture();
+  capture.transcript("yo");
+  const listener = captureListener(capture.capture);
+
+  listener.release();
+  listener.cancel();
+  const pending = listener.listen();
+
+  capture.allowBegin();
+  await flush();
+  expect(capture.finishes()).toBe(0);
+  listener.release();
+  await expect(pending).resolves.toEqual({ text: "yo" });
+});
+
+test("a finish after cancel does not satisfy a later listen", async () => {
+  const capture = deferredCapture();
+  capture.transcript("stale");
+  const listener = captureListener(capture.capture);
+  const pending = listener.listen();
+
+  capture.allowBegin();
+  await flush();
+  listener.release();
+  listener.cancel();
+  await expect(pending).rejects.toThrow("cancelled");
+  expect(capture.finishes()).toBe(1);
+  expect(capture.cancels()).toBe(1);
+
+  capture.transcript("next");
+  const again = listener.listen();
+
+  await flush();
+  capture.allowBegin();
+  await flush();
+  expect(capture.finishes()).toBe(1);
+  listener.release();
+  await expect(again).resolves.toEqual({ text: "next" });
+});
+
+test("the next listen waits until cancel has finished", async () => {
+  const capture = deferredCapture();
+  capture.holdCancel();
+  const listener = captureListener(capture.capture);
+  const pending = listener.listen();
+
+  capture.allowBegin();
+  await flush();
+  listener.cancel();
+  await expect(pending).rejects.toThrow("cancelled");
+  expect(capture.cancels()).toBe(1);
+
+  capture.transcript("next");
+  const again = listener.listen();
+
+  await flush();
+  expect(capture.begins()).toBe(1);
+  capture.releaseCancel();
+  await flush();
+  expect(capture.begins()).toBe(2);
+  capture.allowBegin();
+  await flush();
+  listener.release();
+  await expect(again).resolves.toEqual({ text: "next" });
 });
 
 test("blank text from finish resolves empty", async () => {
@@ -165,7 +260,10 @@ function deferredCapture() {
   let transcript = "";
   let begins = 0;
   let finishes = 0;
+  let cancels = 0;
   let finishError: Error | undefined;
+  let releaseCancel = () => {};
+  let holdCancel = false;
   const gates: BeginGate[] = [];
 
   const capture: Capture = {
@@ -185,12 +283,31 @@ function deferredCapture() {
 
       return transcript;
     },
+    cancel() {
+      cancels += 1;
+
+      if (!holdCancel) {
+        return Promise.resolve();
+      }
+
+      return new Promise<void>((resolve) => {
+        releaseCancel = resolve;
+      });
+    },
   };
 
   return {
     capture,
     begins: () => begins,
     finishes: () => finishes,
+    cancels: () => cancels,
+    holdCancel() {
+      holdCancel = true;
+    },
+    releaseCancel() {
+      holdCancel = false;
+      releaseCancel();
+    },
     transcript(text: string) {
       transcript = text;
     },
@@ -208,6 +325,11 @@ function deferredCapture() {
       gate.reject(error);
     },
   };
+}
+
+async function flush(): Promise<void> {
+  await Promise.resolve();
+  await Promise.resolve();
 }
 
 function takeGate(gates: BeginGate[]): BeginGate {

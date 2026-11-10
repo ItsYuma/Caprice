@@ -7,6 +7,10 @@ use serde::{Deserialize, Serialize};
 pub(super) enum Request {
     Load { model: String, engine: String },
     Transcribe { rate: u32, pcm: String },
+    Feed { pcm: String },
+    Finish,
+    Reset,
+    Cancel,
 }
 
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
@@ -14,6 +18,7 @@ pub(super) enum Request {
 pub(super) enum Response {
     Ready,
     Text { text: String },
+    Partial { text: String },
     Error { message: String },
 }
 

@@ -65,6 +65,7 @@ function ttsEnv(): TtsEnv {
     CAPRICE_TTS_MODEL: import.meta.env.CAPRICE_TTS_MODEL,
     CAPRICE_TTS_VOICE: import.meta.env.CAPRICE_TTS_VOICE,
     CAPRICE_TTS_API_KEY: import.meta.env.CAPRICE_TTS_API_KEY,
+    CAPRICE_TTS_DEADLINE_MS: import.meta.env.CAPRICE_TTS_DEADLINE_MS,
   };
 }
 

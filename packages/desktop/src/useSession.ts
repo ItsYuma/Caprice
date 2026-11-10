@@ -1,19 +1,21 @@
 import {
-  chatModel,
-  httpChatClient,
-  ok,
-  openSession,
-  personaText,
+  fail,
+  postJson,
   tryCatch,
-  type Result,
+  type ModelEnv,
   type Session,
+  type ShellModelPayload,
+  type TranscriptEvent,
 } from "@caprice/core";
 import { invoke } from "@tauri-apps/api/core";
 import { useEffect, useRef, useState } from "react";
 import skill from "../../../skills/capri/SKILL.md?raw";
+import hostSkill from "../../../skills/host/SKILL.md?raw";
 
-import { loadModelEndpoint, type ShellModelEndpoint } from "./endpoint.ts";
+import { openCaprice, type CapriceDeps } from "./compose.ts";
 import { listenAndSay, type TurnPace } from "./host.ts";
+import type { Integration } from "./integration.ts";
+import { openMatchRemarks } from "./matchRemarks.ts";
 import {
   paceListener,
   paceText,
@@ -21,12 +23,18 @@ import {
   type PaceName,
   type PaceNote,
 } from "./pace.ts";
-import { postChat } from "./postChat.ts";
-import { bindTalk, holdToTalk, type TalkHold, type TalkPhase } from "./talk.ts";
+import { stopPlayback } from "./playback.ts";
+import { playing } from "./playing.ts";
+import { postModel } from "./postChat.ts";
+import {
+  bindCancel,
+  bindTalk,
+  holdToTalk,
+  type TalkHold,
+  type TalkPhase,
+} from "./talk.ts";
 import { readThread, threadStore, writeThread } from "./thread.ts";
-import { windowVoice } from "./windowVoice.ts";
-
-const voice = windowVoice();
+import { windowVoice, type WindowVoice } from "./windowVoice.ts";
 
 export type CapriceSession = {
   problem: string;
@@ -38,9 +46,13 @@ export type CapriceSession = {
   stepAt: number;
 };
 
+type StartupName = "loading" | "ready" | "misconfigured";
+
 export function useSession(): CapriceSession {
+  const voice = useVoice();
   const session = useRef<Session | undefined>(undefined);
-  const [problem, setProblem] = useState("");
+  const startup = useRef<StartupName>("loading");
+  const [problem, setProblem] = useState("loading");
   const [hold, setHold] = useState<TalkHold | undefined>(undefined);
   const [talkPhase, setTalkPhase] = useState<TalkPhase>("idle");
   const [marks, setMarks] = useState<readonly PaceMark[]>([]);
@@ -64,34 +76,35 @@ export function useSession(): CapriceSession {
   };
 
   useEffect(() => {
-    let current = true;
-
-    void open().then((opened) => {
-      if (!current) {
-        return;
-      }
-
-      if (!opened.ok) {
-        setProblem(opened.error.message);
-
-        return;
-      }
-
-      session.current = opened.value;
-    });
-
-    return () => {
-      current = false;
-    };
-  }, []);
-
-  useEffect(() => {
+    let alive = true;
     const listener = paceListener(voice.listener, note, readClock);
 
     const pace: TurnPace = {
       note: note.current,
       now: readClock,
       watchVoice: voice.watchVoice,
+    };
+
+    let turnAbort: AbortController | undefined;
+    let phaseNow: TalkPhase = "idle";
+    const watch = new AbortController();
+    const games = playing(voice.inShell);
+
+    const remarks = openMatchRemarks(
+      {
+        session: () => session.current,
+        speaker: voice.speaker,
+        idle: () => phaseNow === "idle",
+      },
+      watch.signal,
+    );
+
+    const stopTurn = () => {
+      remarks.stop();
+      session.current?.cancel();
+      listener.cancel();
+      turnAbort?.abort();
+      stopPlayback();
     };
 
     const next = holdToTalk(
@@ -103,20 +116,33 @@ export function useSession(): CapriceSession {
         setStep("");
 
         if (current === undefined) {
-          setProblem("the model is not configured");
+          if (startup.current === "loading") {
+            setProblem("loading");
+          }
 
           return;
         }
 
+        const controller = new AbortController();
+        turnAbort = controller;
+
         const heard = await tryCatch(
-          listenAndSay(current, listener, voice.speaker, {
+          listenAndSay(current, listener, voice.speaker, controller.signal, {
             ...pace,
             note: note.current,
           }),
           "the model request failed",
         );
 
-        remember(current);
+        if (turnAbort === controller) {
+          turnAbort = undefined;
+        }
+
+        const saved = remember(current);
+
+        if (!alive) {
+          return;
+        }
 
         if (!heard.ok) {
           setProblem(heard.error.message);
@@ -136,15 +162,80 @@ export function useSession(): CapriceSession {
           return;
         }
 
+        if (!saved.ok) {
+          setProblem(saved.error.message);
+
+          return;
+        }
+
         setProblem("");
       },
-      setTalkPhase,
+      (phase) => {
+        phaseNow = phase;
+        setTalkPhase(phase);
+      },
     );
 
-    setHold(next);
+    const hold: TalkHold = {
+      phase: () => next.phase(),
+      press() {
+        remarks.stop();
+        session.current?.cancel();
+        next.press();
+      },
+      release() {
+        next.release();
+      },
+    };
 
-    return bindTalk(next);
-  }, []);
+    setHold(hold);
+
+    const unbind = bindTalk(hold, window);
+
+    const unbindCancel = bindCancel(window, stopTurn);
+
+    void openCaprice(
+      browserDeps(rememberedEvents(), voice.inShell, games.integrations),
+    ).then(
+      (opened) => {
+        if (!alive) {
+          if (opened.status === "ready") {
+            opened.session.cancel();
+          }
+
+          return;
+        }
+
+        if (opened.status === "misconfigured") {
+          startup.current = "misconfigured";
+          setProblem(opened.message);
+
+          return;
+        }
+
+        startup.current = "ready";
+        session.current = opened.session;
+        setProblem("");
+        remarks.follow(games.remarks);
+      },
+      () => {
+        if (!alive) {
+          return;
+        }
+
+        startup.current = "misconfigured";
+        setProblem("the model is not configured");
+      },
+    );
+
+    return () => {
+      alive = false;
+      watch.abort();
+      unbind();
+      unbindCancel();
+      stopTurn();
+    };
+  }, [voice]);
 
   return {
     problem,
@@ -161,44 +252,59 @@ function readClock(): number {
   return performance.now();
 }
 
-function remember(current: Session): void {
+function useVoice(): WindowVoice {
+  const voice = useRef<WindowVoice | undefined>(undefined);
+
+  if (voice.current === undefined) {
+    voice.current = windowVoice();
+  }
+
+  return voice.current;
+}
+
+function rememberedEvents(): TranscriptEvent[] {
   const store = threadStore();
 
   if (store === undefined) {
-    return;
+    return [];
   }
 
-  writeThread(store, current.lines());
+  return readThread(store);
 }
 
-async function open(): Promise<Result<Session>> {
-  const loaded = await tryCatch(
-    loadModelEndpoint(
-      {
-        CAPRICE_MODEL_URL: import.meta.env.CAPRICE_MODEL_URL,
-        CAPRICE_MODEL: import.meta.env.CAPRICE_MODEL,
-        CAPRICE_MODEL_API_KEY: import.meta.env.CAPRICE_MODEL_API_KEY,
-      },
-      {
-        inShell: "__TAURI_INTERNALS__" in window,
-        readShell: () => invoke<ShellModelEndpoint>("model_endpoint"),
-      },
-    ),
-    "the model is not configured",
-  );
-
-  if (!loaded.ok) {
-    return loaded;
-  }
-
+function remember(current: Session) {
   const store = threadStore();
 
-  return ok(
-    openSession(
-      personaText(skill),
-      chatModel(httpChatClient(loaded.value, postChat)),
-      [],
-      store === undefined ? [] : readThread(store),
-    ),
-  );
+  if (store === undefined) {
+    return fail<boolean>("couldn't save the conversation");
+  }
+
+  return writeThread(store, current.events());
+}
+
+function browserDeps(
+  remembered: readonly TranscriptEvent[],
+  inShell: boolean,
+  integrations: readonly Integration[],
+): CapriceDeps {
+  return {
+    voiceSkill: skill,
+    hostSkill,
+    env: modelEnv(),
+    inShell,
+    readShell: () => invoke<ShellModelPayload>("model_endpoint"),
+    postShell: postModel,
+    postBrowser: postJson,
+    remembered,
+    integrations,
+  };
+}
+
+function modelEnv(): ModelEnv {
+  return {
+    CAPRICE_MODEL_URL: import.meta.env.CAPRICE_MODEL_URL,
+    CAPRICE_MODEL: import.meta.env.CAPRICE_MODEL,
+    CAPRICE_MODEL_API_KEY: import.meta.env.CAPRICE_MODEL_API_KEY,
+    CAPRICE_MODEL_PROTOCOL: import.meta.env.CAPRICE_MODEL_PROTOCOL,
+  };
 }

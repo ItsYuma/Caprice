@@ -1,11 +1,17 @@
 use super::engine::EngineKind;
 use super::protocol::{Request, Response};
 
+pub(super) enum Follow {
+    Clip,
+    Load,
+}
+
 pub(super) struct Job {
     pub pcm: String,
     pub rate: u32,
     pub model: String,
     pub engine: EngineKind,
+    pub follow: Follow,
 }
 
 pub(super) enum Phase<W> {
@@ -14,7 +20,11 @@ pub(super) enum Phase<W> {
 }
 
 enum Wait {
-    Load { pcm: String, rate: u32 },
+    Load {
+        pcm: String,
+        rate: u32,
+        follow: Follow,
+    },
     Audio,
 }
 
@@ -35,43 +45,90 @@ enum Drive<W> {
 
 pub(super) enum Mic<R> {
     Idle,
-    Hot(R),
+    Recording(R),
+    Finishing,
 }
 
 pub(super) enum Press<R> {
     Open,
-    Busy(R),
+    Busy(Mic<R>),
 }
 
-pub(super) enum Released<R> {
-    Captured(R),
+pub(super) enum Stop<R> {
+    Begin(R),
+    Idle,
+}
+
+pub(super) enum Cancelled<R> {
+    Stopped(R),
+    Pending,
     Idle,
 }
 
 pub(super) fn press<R>(mic: Mic<R>) -> Press<R> {
     match mic {
         Mic::Idle => Press::Open,
-        Mic::Hot(recording) => Press::Busy(recording),
+        other => Press::Busy(other),
     }
 }
 
-pub(super) fn release<R>(mic: Mic<R>) -> Released<R> {
+pub(super) fn cease<R>(mic: Mic<R>) -> (Mic<R>, Stop<R>) {
     match mic {
-        Mic::Hot(recording) => Released::Captured(recording),
-        Mic::Idle => Released::Idle,
+        Mic::Recording(recording) => (Mic::Finishing, Stop::Begin(recording)),
+        Mic::Idle => (Mic::Idle, Stop::Idle),
+        Mic::Finishing => (Mic::Finishing, Stop::Idle),
+    }
+}
+
+pub(super) fn settle<R>(mic: Mic<R>) -> Mic<R> {
+    match mic {
+        Mic::Finishing => Mic::Idle,
+        other => other,
+    }
+}
+
+pub(super) struct ListenOutcome {
+    pub transcript: Result<String, String>,
+    pub feed: Result<(), String>,
+    pub microphone: Option<String>,
+    pub cancelled: bool,
+}
+
+pub(super) fn publish(outcome: ListenOutcome) -> Result<String, String> {
+    if outcome.cancelled {
+        return Err("listening cancelled".to_string());
+    }
+    if let Some(message) = outcome.microphone {
+        return Err(message);
+    }
+    outcome.feed?;
+    outcome.transcript
+}
+
+pub(super) fn cancel_mic<R>(mic: Mic<R>) -> (Mic<R>, Cancelled<R>) {
+    match mic {
+        Mic::Recording(recording) => (Mic::Idle, Cancelled::Stopped(recording)),
+        Mic::Finishing => (Mic::Finishing, Cancelled::Pending),
+        Mic::Idle => (Mic::Idle, Cancelled::Idle),
     }
 }
 
 fn begin<W>(phase: Phase<W>, job: Job) -> Drive<W> {
     match phase {
         Phase::Idle => Drive::Spawn { job },
-        Phase::Live(worker) => Drive::Send {
-            request: Request::Transcribe {
-                rate: job.rate,
-                pcm: job.pcm,
+        Phase::Live(worker) => match job.follow {
+            Follow::Load => Drive::Done {
+                phase: Phase::Live(worker),
+                result: Ok(String::new()),
             },
-            worker,
-            wait: Wait::Audio,
+            Follow::Clip => Drive::Send {
+                request: Request::Transcribe {
+                    rate: job.rate,
+                    pcm: job.pcm,
+                },
+                worker,
+                wait: Wait::Audio,
+            },
         },
     }
 }
@@ -82,6 +139,7 @@ fn spawned<W>(worker: W, job: Job) -> Drive<W> {
         rate,
         model,
         engine,
+        follow,
     } = job;
     Drive::Send {
         request: Request::Load {
@@ -89,13 +147,30 @@ fn spawned<W>(worker: W, job: Job) -> Drive<W> {
             engine: engine.name().to_string(),
         },
         worker,
-        wait: Wait::Load { pcm, rate },
+        wait: Wait::Load { pcm, rate, follow },
     }
 }
 
 fn replied<W>(worker: W, wait: Wait, response: Response) -> Drive<W> {
     match (wait, response) {
-        (Wait::Load { pcm, rate }, Response::Ready) => Drive::Send {
+        (
+            Wait::Load {
+                follow: Follow::Load,
+                ..
+            },
+            Response::Ready,
+        ) => Drive::Done {
+            phase: Phase::Live(worker),
+            result: Ok(String::new()),
+        },
+        (
+            Wait::Load {
+                pcm,
+                rate,
+                follow: Follow::Clip,
+            },
+            Response::Ready,
+        ) => Drive::Send {
             request: Request::Transcribe { rate, pcm },
             worker,
             wait: Wait::Audio,
@@ -103,10 +178,6 @@ fn replied<W>(worker: W, wait: Wait, response: Response) -> Drive<W> {
         (Wait::Load { .. }, Response::Error { message }) => Drive::Done {
             phase: Phase::Idle,
             result: Err(message),
-        },
-        (Wait::Load { .. }, Response::Text { .. }) => Drive::Done {
-            phase: Phase::Idle,
-            result: Err("speech worker broke the protocol".to_string()),
         },
         (Wait::Audio, Response::Text { text }) => Drive::Done {
             phase: Phase::Live(worker),
@@ -116,7 +187,8 @@ fn replied<W>(worker: W, wait: Wait, response: Response) -> Drive<W> {
             phase: Phase::Live(worker),
             result: Err(message),
         },
-        (Wait::Audio, Response::Ready) => Drive::Done {
+        (Wait::Load { .. }, Response::Text { .. } | Response::Partial { .. })
+        | (Wait::Audio, Response::Ready | Response::Partial { .. }) => Drive::Done {
             phase: Phase::Idle,
             result: Err("speech worker broke the protocol".to_string()),
         },

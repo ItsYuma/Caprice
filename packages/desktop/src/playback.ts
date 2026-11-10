@@ -81,65 +81,89 @@ export function subscribePlayback(hear: (frame: Frame) => void): () => void {
   };
 }
 
+export function stopPlayback(): void {
+  generation += 1;
+  const stop = activeStop;
+
+  activeStop = undefined;
+  stop?.();
+  publish(restFrame());
+}
+
 export async function playSpeech(
   bytes: Uint8Array,
+  signal?: AbortSignal,
   limit = deviceLimit,
 ): Promise<void> {
+  if (signal?.aborted) {
+    throw new Error("cancelled");
+  }
+
   if (bytes.byteLength === 0) {
     return;
   }
 
   const mine = generation + 1;
   generation = mine;
-  releaseActive();
+  const previous = activeStop;
+  activeStop = undefined;
+  previous?.();
+
+  const onAbort = () => {
+    if (mine === generation) {
+      stopPlayback();
+    }
+  };
+
+  signal?.addEventListener("abort", onAbort, { once: true });
 
   const held: Held = { context: undefined };
-  let opened: Opened | "stale" | undefined;
 
   try {
-    opened = await firstReady(openDevice(bytes, mine, held), limit);
-  } catch (error) {
-    releaseDevice(held);
+    const opened = await firstReady(
+      openDevice(bytes, mine, held, signal),
+      limit,
+      signal,
+    );
 
-    if (mine === generation) {
-      publish(restFrame());
+    if (opened === undefined) {
+      await releaseHeld(held);
+      throwIfCancelled(signal);
+
+      if (mine !== generation) {
+        return;
+      }
+
+      await playClip(bytes, mine);
+      throwIfCancelled(signal);
+
+      return;
     }
 
-    if (isPlaybackFailure(error)) {
-      throw error;
+    if (opened === "stale") {
+      return;
     }
 
-    throw new Error(playbackFailed);
-  }
-
-  if (opened === undefined) {
-    retire(mine);
-    releaseDevice(held);
-    await playClip(bytes);
-
-    return;
-  }
-
-  if (opened === "stale") {
-    releaseDevice(held);
-
-    return;
-  }
-
-  try {
     await playBuffer(opened.context, opened.audio, mine);
+    throwIfCancelled(signal);
   } catch (error) {
     if (mine === generation) {
       publish(restFrame());
     }
 
-    if (isPlaybackFailure(error)) {
+    if (isCancelled(error) || isPlaybackFailure(error)) {
       throw error;
     }
 
     throw new Error(playbackFailed);
   } finally {
-    releaseDevice({ context: opened.context });
+    signal?.removeEventListener("abort", onAbort);
+
+    if (held.context !== undefined) {
+      const context = held.context;
+      held.context = undefined;
+      await closeContext(context);
+    }
   }
 }
 
@@ -152,63 +176,63 @@ type Opened = {
   audio: AudioBuffer;
 };
 
-function releaseActive(): void {
-  const previous = activeStop;
-
-  activeStop = undefined;
-  previous?.();
-}
-
-function retire(mine: number): void {
-  if (generation === mine) {
-    generation = mine + 1;
-  }
-}
-
-function releaseDevice(held: Held): void {
+async function releaseHeld(held: Held): Promise<void> {
   const context = held.context;
 
   held.context = undefined;
 
   if (context !== undefined) {
-    closeContext(context);
+    await closeContext(context);
   }
 }
 
 function firstReady<T>(
   pending: Promise<T>,
   limit: number,
+  signal: AbortSignal | undefined,
 ): Promise<T | undefined> {
   return new Promise((resolve, reject) => {
     let settled = false;
 
-    const timer = setTimeout(() => {
+    const finish = (run: () => void) => {
       if (settled) {
         return;
       }
 
       settled = true;
-      resolve(undefined);
+      clearTimeout(timer);
+      signal?.removeEventListener("abort", onAbort);
+      run();
+    };
+
+    const onAbort = () => {
+      finish(() => {
+        reject(new Error("cancelled"));
+      });
+    };
+
+    const timer = setTimeout(() => {
+      finish(() => {
+        resolve(undefined);
+      });
     }, limit);
+
+    if (signal?.aborted) {
+      onAbort();
+    } else {
+      signal?.addEventListener("abort", onAbort, { once: true });
+    }
 
     pending.then(
       (value) => {
-        if (settled) {
-          return;
-        }
-
-        settled = true;
-        clearTimeout(timer);
-        resolve(value);
+        finish(() => {
+          resolve(value);
+        });
       },
       (error) => {
-        if (settled) {
-          return;
-        }
-
-        settled = true;
-        clearTimeout(timer);
-        reject(error);
+        finish(() => {
+          reject(error);
+        });
       },
     );
   });
@@ -218,17 +242,20 @@ async function openDevice(
   bytes: Uint8Array,
   mine: number,
   held: Held,
+  signal: AbortSignal | undefined,
 ): Promise<Opened | "stale"> {
   const context = new AudioContext();
 
   held.context = context;
   await resumeContext(context);
+  throwIfCancelled(signal);
 
   if (mine !== generation) {
     return "stale";
   }
 
   const audio = await context.decodeAudioData(copiedBytes(bytes));
+  throwIfCancelled(signal);
 
   if (mine !== generation) {
     return "stale";
@@ -237,12 +264,15 @@ async function openDevice(
   return { context, audio };
 }
 
-function playClip(bytes: Uint8Array): Promise<void> {
-  const mine = generation + 1;
+function playClip(bytes: Uint8Array, mine: number): Promise<void> {
+  if (mine !== generation) {
+    return Promise.resolve();
+  }
 
-  generation = mine;
+  const url = URL.createObjectURL(
+    new Blob([copiedBytes(bytes)], { type: "audio/wav" }),
+  );
 
-  const url = URL.createObjectURL(new Blob([copiedBytes(bytes)]));
   const audio = new Audio(url);
 
   return new Promise((resolve, reject) => {
@@ -303,6 +333,16 @@ function playClip(bytes: Uint8Array): Promise<void> {
       });
     }
   });
+}
+
+function throwIfCancelled(signal: AbortSignal | undefined): void {
+  if (signal?.aborted) {
+    throw new Error("cancelled");
+  }
+}
+
+function isCancelled(value: unknown): value is Error {
+  return value instanceof Error && value.message === "cancelled";
 }
 
 function publish(frame: Frame): void {
@@ -490,8 +530,8 @@ function resumeContext(context: AudioContext): Promise<void> {
   });
 }
 
-function closeContext(context: AudioContext): void {
-  void context.close().then(
+async function closeContext(context: AudioContext): Promise<void> {
+  await context.close().then(
     () => undefined,
     () => undefined,
   );

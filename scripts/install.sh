@@ -17,10 +17,10 @@ reject_unknown_args() {
     case "$token" in
       --help | -h | --skip-system)
         ;;
-      --model-url | --model | --model-api-key | --voice | --data-dir | --python | --container)
+      --model-url | --model-api-key | --model-protocol | --model-runtime | --model-executable | --model-deadline-ms | --model | --voice | --stt-engine | --stt-model | --stt-deadline-ms | --tts-engine | --tts-woof | --tts-url | --tts-model | --tts-api-key | --tts-deadline-ms | --data-dir | --python | --container)
         skip_value=1
         ;;
-      --model-url=* | --model=* | --model-api-key=* | --voice=* | --data-dir=* | --python=* | --container=*)
+      --model-url=* | --model-api-key=* | --model-protocol=* | --model-runtime=* | --model-executable=* | --model-deadline-ms=* | --model=* | --voice=* | --stt-engine=* | --stt-model=* | --stt-deadline-ms=* | --tts-engine=* | --tts-woof=* | --tts-url=* | --tts-model=* | --tts-api-key=* | --tts-deadline-ms=* | --data-dir=* | --python=* | --container=*)
         ;;
       *)
         echo "unknown argument: ${token}"
@@ -248,7 +248,7 @@ install_linux_packages() {
     *debian* | *ubuntu* | *linuxmint* | *pop*)
       run_root apt-get update
       DEBIAN_FRONTEND=noninteractive run_root apt-get install -y \
-        build-essential curl wget file pkg-config patchelf \
+        build-essential curl wget file pkg-config patchelf cmake \
         libssl-dev libxdo-dev libgtk-3-dev libwebkit2gtk-4.1-dev \
         libayatana-appindicator3-dev librsvg2-dev \
         python3 python3-venv python3-pip ca-certificates
@@ -263,7 +263,7 @@ install_linux_packages() {
         exit 1
       fi
       run_root dnf install -y \
-        gcc gcc-c++ make curl wget file openssl-devel gtk3-devel \
+        gcc gcc-c++ make cmake curl wget file openssl-devel gtk3-devel \
         python3 python3-pip ca-certificates \
         "$webkit"
       rpm_install_available \
@@ -273,15 +273,51 @@ install_linux_packages() {
       ;;
     *arch*)
       run_root pacman -S --needed --noconfirm \
-        base-devel curl wget file pkgconf openssl gtk3 webkit2gtk-4.1 \
+        base-devel cmake curl wget file pkgconf openssl gtk3 webkit2gtk-4.1 \
         librsvg xdotool python python-pip ca-certificates
       ;;
     *)
-      echo "Install GTK 3, WebKitGTK 4.1, python3, and a C compiler, then run scripts/install.sh again."
+      echo "Install CMake, GTK 3, WebKitGTK 4.1, python3, and a C compiler, then run scripts/install.sh again."
       echo "Or re-run with --skip-system if they are already installed."
       exit 1
       ;;
   esac
+}
+
+ensure_cmake() {
+  if command -v cmake >/dev/null 2>&1; then
+    return
+  fi
+  if [[ "$skip_system" -eq 1 ]]; then
+    echo "CMake is required to build speech."
+    exit 1
+  fi
+
+  local id="" like=""
+  id="$(os_field ID)"
+  like="$(os_field ID_LIKE)"
+
+  case "${id} ${like}" in
+    *debian* | *ubuntu* | *linuxmint* | *pop*)
+      run_root apt-get update
+      DEBIAN_FRONTEND=noninteractive run_root apt-get install -y cmake
+      ;;
+    *fedora* | *rhel* | *centos*)
+      run_root dnf install -y cmake
+      ;;
+    *arch*)
+      run_root pacman -S --needed --noconfirm cmake
+      ;;
+    *)
+      echo "Install CMake, then run scripts/install.sh again."
+      exit 1
+      ;;
+  esac
+
+  if ! command -v cmake >/dev/null 2>&1; then
+    echo "CMake is required to build speech."
+    exit 1
+  fi
 }
 
 if [[ "${BASH_SOURCE[0]}" != "$0" ]]; then
@@ -312,13 +348,20 @@ if [[ "$(uname -s)" == "Darwin" ]]; then
     echo "Install the Xcode command line tools, then run scripts/install.sh again."
     exit 1
   fi
+  if [[ "$skip_system" -eq 0 ]] && ! command -v cmake >/dev/null 2>&1; then
+    echo "Install CMake, then run scripts/install.sh again. transcribe.cpp needs it."
+    exit 1
+  fi
 fi
 
 if [[ "$(uname -s)" == "Linux" ]]; then
   if needs_fedora_container; then
     enter_fedora "$@"
-  elif [[ "$skip_system" -eq 0 ]]; then
-    install_linux_packages "$@"
+  else
+    if [[ "$skip_system" -eq 0 ]]; then
+      install_linux_packages "$@"
+    fi
+    ensure_cmake
   fi
 fi
 

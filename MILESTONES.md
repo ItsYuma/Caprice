@@ -29,7 +29,7 @@ Done.
 - `listenAndSay` passes that text to `say`, then the page plays the capri line
 - The box keeps `hear`, `reply`, and `voice` times for the last turn. `hear` is transcription after release. `voice` ends when the audio bytes are ready
 - The listener is `captureListener`. Inside the Tauri window, Rust records the default microphone and a speech worker transcribes it. The worker loads the selected engine once and stays until the window exits
-- `CAPRICE_STT_ENGINE=bark` loads Underdog Bark 3.0 Pro from `CAPRICE_STT_MODEL` (`config.json`, `tokenizer.json`, `model.safetensors`). Empty or `onnx` loads the int8 ONNX directory. No model path is hardcoded
+- Empty `CAPRICE_STT_ENGINE`, or `bark`, loads Underdog Bark 3.0 Pro from `CAPRICE_STT_MODEL` (`config.json`, `tokenizer.json`, `model.safetensors`) and transcribes the clip on release. `bark-stream` transcribes that checkpoint while the key is held. `onnx` loads the int8 ONNX directory. `parakeet` streams a Parakeet Unified English 0.6B GGUF. No model path is hardcoded
 - Spoken replies use `CAPRICE_TTS_ENGINE`. Empty or `http` posts to `CAPRICE_TTS_URL` with `CAPRICE_TTS_MODEL`. Optional `CAPRICE_TTS_VOICE` and `CAPRICE_TTS_API_KEY`. `woof` is a resident `python3` child pointed at the Underdog Woof directory in `CAPRICE_TTS_WOOF`. Rust returns the bytes. The page plays them
 - `scriptedListener` and `recordingSpeaker` stay for tests
 - No microphone name, sample rate, host, or model id is hardcoded. Caprice does not shell out to Handy or Parakeet and does not use the Web Speech API
@@ -37,7 +37,9 @@ Done.
 
 ## 3. One computer tool
 
-One `Tool`. The host confirms the call before `run`. `skills/host` is the instruction the model sees. Rust does the OS work. Core stays free of Tauri.
+One `Tool`. `skills/host` is the instruction the model sees. The call runs when she names it. Rust does the OS work. Core stays free of Tauri.
+
+League client tools are not this milestone. `league_live` and `league_lcu` call the local League client when she names them. The computer tool is still the one this row is waiting on.
 
 ## 4. Day to day
 

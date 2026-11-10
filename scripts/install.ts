@@ -1,25 +1,27 @@
 import { access, chmod, mkdir, readdir } from "node:fs/promises";
 
 import {
-  barkDir,
   barkFileNames,
   barkRepo,
   capriceDataDir,
+  choose,
   configPath,
   configText,
-  filled,
   installHelp,
   launcherPath,
   launcherText,
   missingNames,
   parseSetupArgs,
+  planInstall,
   platformOf,
   readConfig,
+  usesBark,
   venvDir,
   venvPython,
-  woofDir,
   woofRepo,
   type CapriceConfig,
+  type ConfigEnv,
+  type InstallPlan,
   type Platform,
   type SetupArgs,
 } from "./layout.ts";
@@ -29,6 +31,9 @@ import sys
 from huggingface_hub import snapshot_download
 snapshot_download(repo_id=sys.argv[1], local_dir=sys.argv[2])
 `;
+
+const missingChat =
+  "Pass --model-url and --model. Those are the chat endpoint and the model name.";
 
 if (import.meta.main) {
   try {
@@ -75,15 +80,27 @@ async function installMain(): Promise<void> {
 
   const repo = process.cwd();
   const previous = await savedConfig(platform, data);
-  const config = await choices(parsed, previous, platform, data, repo);
+  const plan = await planned(parsed, previous, platform, data, repo);
+  const config = plan.config;
 
   await mkdir(data, { recursive: true });
-  await mkdir(woofDir(platform, data), { recursive: true });
-  await mkdir(barkDir(platform, data), { recursive: true });
-  const python = await ensurePython(parsed.python, platform, data);
-  config.python = python;
-  await ensurePackages(python);
-  await ensureModels(python, platform, data);
+
+  if (plan.python) {
+    config.python = await ensurePython(parsed.python, platform, data);
+    await ensurePackages(config.python);
+  }
+
+  if (plan.bark) {
+    await mkdir(config.sttModel, { recursive: true });
+    await ensureBark(config.python, config.sttModel);
+  }
+
+  if (plan.woof) {
+    await mkdir(config.ttsWoof, { recursive: true });
+    await ensureWoof(config.python, config.ttsWoof);
+  }
+
+  await verifySpeech(plan);
   await run(process.execPath, ["install"], repo);
   await Bun.write(configPath(platform, data), configText(config));
   const launcher = launcherPath(platform, data);
@@ -94,78 +111,60 @@ async function installMain(): Promise<void> {
   }
 
   console.log(`Caprice is set up in ${data}`);
-  console.log(`Woof: ${config.ttsWoof}`);
-  console.log(`Bark: ${config.sttModel}`);
-  console.log(`Voice: ${config.ttsVoice}`);
+  console.log(`Listen: ${shownEngine(config.sttEngine)} ${config.sttModel}`);
+
+  if (config.ttsEngine === "woof") {
+    console.log(`Woof: ${config.ttsWoof}`);
+    console.log(`Voice: ${config.ttsVoice}`);
+  } else {
+    console.log(`Speech: ${config.ttsUrl}`);
+  }
+
   console.log(`Start it with ${launcher}`);
   console.log("Or from this repo: bun run dev");
   console.log("The first launch compiles the window.");
 }
 
-async function choices(
+async function planned(
   args: SetupArgs,
   previous: CapriceConfig | undefined,
   platform: Platform,
   data: string,
   repo: string,
-): Promise<CapriceConfig> {
-  const saved = previous ?? emptyConfig();
+): Promise<InstallPlan> {
+  const env = currentEnv();
+  let plan = planInstall(args, previous, env, platform, data, repo);
 
-  let modelUrl = filled(
-    args.modelUrl,
-    process.env.CAPRICE_MODEL_URL ?? "",
-    saved.modelUrl,
-  );
-
-  let model = filled(args.model, process.env.CAPRICE_MODEL ?? "", saved.model);
-
-  if (modelUrl.length === 0 || model.length === 0) {
-    const prompted = await promptForChat(modelUrl, model);
-    modelUrl = prompted.modelUrl;
-    model = prompted.model;
+  if (plan === missingChat) {
+    const current = currentChat(args, previous, env);
+    const prompted = await promptForChat(current.modelUrl, current.model);
+    args.modelUrl = prompted.modelUrl;
+    args.model = prompted.model;
+    plan = planInstall(args, previous, env, platform, data, repo);
   }
 
-  if (modelUrl.length === 0 || model.length === 0) {
-    throw new Error(
-      "Pass --model-url and --model. Those are the chat endpoint and the model name.",
-    );
+  if (!isInstallPlan(plan)) {
+    throw new Error(plan);
   }
 
-  const voice = filled(
-    args.voice,
-    process.env.CAPRICE_TTS_VOICE ?? "",
-    saved.ttsVoice,
-  );
+  return plan;
+}
 
-  const chosenVoice = voice.length === 0 ? "juno" : voice;
-
-  if (chosenVoice !== "juno" && chosenVoice !== "mira") {
-    throw new Error(`unknown woof voice: ${chosenVoice}`);
-  }
-
+function currentChat(
+  args: SetupArgs,
+  previous: CapriceConfig | undefined,
+  env: ConfigEnv,
+): ChatPrompt {
   return {
-    modelUrl,
-    model,
-    modelApiKey: filled(
-      args.modelApiKey,
-      process.env.CAPRICE_MODEL_API_KEY ?? "",
-      saved.modelApiKey,
-    ),
-    sttEngine: "bark",
-    sttModel: barkDir(platform, data),
-    ttsEngine: "woof",
-    ttsWoof: woofDir(platform, data),
-    ttsVoice: chosenVoice,
-    python: "",
-    repo,
-    container: args.container.length > 0 ? args.container : saved.container,
+    modelUrl: choose(args.modelUrl, env.modelUrl, previous?.modelUrl, ""),
+    model: choose(args.model, env.model, previous?.model, ""),
   };
 }
 
 async function promptForChat(
   modelUrl: string,
   model: string,
-): Promise<{ modelUrl: string; model: string }> {
+): Promise<ChatPrompt> {
   if (process.stdin.isTTY !== true) {
     return { modelUrl, model };
   }
@@ -195,7 +194,13 @@ async function savedConfig(
     return undefined;
   }
 
-  return readConfig(await file.text());
+  const read = readConfig(await file.text());
+
+  if (read === undefined) {
+    throw new Error(`${path} could not be read`);
+  }
+
+  return read;
 }
 
 async function ensurePython(
@@ -241,38 +246,64 @@ async function ensurePackages(python: string): Promise<void> {
   );
 }
 
-async function ensureModels(
-  python: string,
-  platform: Platform,
-  data: string,
-): Promise<void> {
-  const woof = woofDir(platform, data);
-  const bark = barkDir(platform, data);
-  const woofReady = await importsWoof(python, woof);
-  const barkReady = (await missingBark(bark)).length === 0;
-
-  if (woofReady && barkReady) {
+async function ensureBark(python: string, directory: string): Promise<void> {
+  if ((await missingBark(directory)).length === 0) {
     return;
   }
 
-  if (!woofReady) {
-    console.log(`Downloading ${woofRepo}`);
-    await run(python, ["-c", downloadProgram, woofRepo, woof], process.cwd());
-  }
-
-  if (!barkReady) {
-    console.log(`Downloading ${barkRepo}`);
-    await run(python, ["-c", downloadProgram, barkRepo, bark], process.cwd());
-  }
-
-  if (!(await importsWoof(python, woof))) {
-    throw new Error(`Woof did not import from ${woof}`);
-  }
-
-  const missing = await missingBark(bark);
+  console.log(`Downloading ${barkRepo}`);
+  await run(
+    python,
+    ["-c", downloadProgram, barkRepo, directory],
+    process.cwd(),
+  );
+  const missing = await missingBark(directory);
 
   if (missing.length > 0) {
-    throw new Error(`Bark is missing ${missing.join(", ")} in ${bark}`);
+    throw new Error(`Bark is missing ${missing.join(", ")} in ${directory}`);
+  }
+}
+
+async function ensureWoof(python: string, directory: string): Promise<void> {
+  if (await importsWoof(python, directory)) {
+    return;
+  }
+
+  console.log(`Downloading ${woofRepo}`);
+  await run(
+    python,
+    ["-c", downloadProgram, woofRepo, directory],
+    process.cwd(),
+  );
+
+  if (!(await importsWoof(python, directory))) {
+    throw new Error(`Woof did not import from ${directory}`);
+  }
+}
+
+async function verifySpeech(plan: InstallPlan): Promise<void> {
+  const config = plan.config;
+
+  if (!plan.bark && usesBark(config.sttEngine)) {
+    const missing = await missingBark(config.sttModel);
+
+    if (missing.length > 0) {
+      throw new Error(
+        `Bark is missing ${missing.join(", ")} in ${config.sttModel}`,
+      );
+    }
+  }
+
+  if (config.sttEngine === "onnx" || config.sttEngine === "parakeet") {
+    if (!(await pathExists(config.sttModel))) {
+      throw new Error(`Pass --stt-model for the ${config.sttEngine} engine.`);
+    }
+  }
+
+  if (config.ttsEngine === "woof" && !plan.woof) {
+    if (!(await pathExists(config.ttsWoof))) {
+      throw new Error(`Woof was not found at ${config.ttsWoof}`);
+    }
   }
 }
 
@@ -301,11 +332,15 @@ async function missingBark(directory: string): Promise<string[]> {
   return missingNames(names, barkFileNames);
 }
 
-async function isFile(path: string): Promise<boolean> {
+async function pathExists(path: string): Promise<boolean> {
   return access(path).then(
     () => true,
     () => false,
   );
+}
+
+async function isFile(path: string): Promise<boolean> {
+  return pathExists(path);
 }
 
 async function run(
@@ -343,22 +378,45 @@ async function spawn(
   return child.exited;
 }
 
+function currentEnv(): ConfigEnv {
+  return {
+    modelUrl: process.env.CAPRICE_MODEL_URL ?? "",
+    model: process.env.CAPRICE_MODEL ?? "",
+    modelApiKey: process.env.CAPRICE_MODEL_API_KEY ?? "",
+    modelProtocol: process.env.CAPRICE_MODEL_PROTOCOL ?? "",
+    modelRuntime: process.env.CAPRICE_MODEL_RUNTIME ?? "",
+    modelExecutable: process.env.CAPRICE_MODEL_EXECUTABLE ?? "",
+    modelDeadlineMs: process.env.CAPRICE_MODEL_DEADLINE_MS ?? "",
+    sttEngine: process.env.CAPRICE_STT_ENGINE ?? "",
+    sttModel: process.env.CAPRICE_STT_MODEL ?? "",
+    sttDeadlineMs: process.env.CAPRICE_STT_DEADLINE_MS ?? "",
+    ttsEngine: process.env.CAPRICE_TTS_ENGINE ?? "",
+    ttsWoof: process.env.CAPRICE_TTS_WOOF ?? "",
+    ttsVoice: process.env.CAPRICE_TTS_VOICE ?? "",
+    ttsUrl: process.env.CAPRICE_TTS_URL ?? "",
+    ttsModel: process.env.CAPRICE_TTS_MODEL ?? "",
+    ttsApiKey: process.env.CAPRICE_TTS_API_KEY ?? "",
+    ttsDeadlineMs: process.env.CAPRICE_TTS_DEADLINE_MS ?? "",
+  };
+}
+
+function shownEngine(engine: string): string {
+  if (engine.length === 0) {
+    return "bark";
+  }
+
+  return engine;
+}
+
 function isSetupArgs(value: SetupArgs | string): value is SetupArgs {
   return Object.prototype.toString.call(value) === "[object Object]";
 }
 
-function emptyConfig(): CapriceConfig {
-  return {
-    modelUrl: "",
-    model: "",
-    modelApiKey: "",
-    sttEngine: "",
-    sttModel: "",
-    ttsEngine: "",
-    ttsWoof: "",
-    ttsVoice: "",
-    python: "",
-    repo: "",
-    container: "",
-  };
+function isInstallPlan(value: InstallPlan | string): value is InstallPlan {
+  return Object.prototype.toString.call(value) === "[object Object]";
 }
+
+type ChatPrompt = {
+  modelUrl: string;
+  model: string;
+};

@@ -1,6 +1,7 @@
 use base64::engine::general_purpose::STANDARD;
 use base64::Engine;
 
+use super::limit::{tts_deadline, REPLY_BYTES};
 use super::reply;
 
 fn encode_audio(bytes: &[u8]) -> String {
@@ -46,6 +47,7 @@ pub(super) async fn post(text: String) -> Result<Vec<u8>, String> {
     }
 
     let client = reqwest::Client::builder()
+        .timeout(tts_deadline()?)
         .build()
         .map_err(|err| err.to_string())?;
     let mut request = client
@@ -56,13 +58,38 @@ pub(super) async fn post(text: String) -> Result<Vec<u8>, String> {
         request = request.header("authorization", format!("Bearer {api_key}"));
     }
 
-    let response = request.send().await.map_err(|err| err.to_string())?;
+    let response = request.send().await.map_err(show_http)?;
     let status = response.status();
-    let bytes = response.bytes().await.map_err(|err| err.to_string())?;
+    let bytes = read_body(response).await?;
     if !status.is_success() {
         return Err(format!("speech request failed: {}", status.as_u16()));
     }
-    Ok(bytes.to_vec())
+    Ok(bytes)
+}
+
+async fn read_body(mut response: reqwest::Response) -> Result<Vec<u8>, String> {
+    if response
+        .content_length()
+        .is_some_and(|len| len > REPLY_BYTES as u64)
+    {
+        return Err("speech reply is too large".to_string());
+    }
+    let mut body = Vec::new();
+    while let Some(chunk) = response.chunk().await.map_err(show_http)? {
+        if body.len().saturating_add(chunk.len()) > REPLY_BYTES {
+            return Err("speech reply is too large".to_string());
+        }
+        body.extend_from_slice(&chunk);
+    }
+    Ok(body)
+}
+
+fn show_http(err: reqwest::Error) -> String {
+    if err.is_timeout() {
+        "speech reply timed out".to_string()
+    } else {
+        err.to_string()
+    }
 }
 
 #[cfg(test)]

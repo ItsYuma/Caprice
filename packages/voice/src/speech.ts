@@ -2,163 +2,319 @@ import type { Heard, Listener } from "./ports.ts";
 
 export type PushListener = Listener & {
   release: () => void;
+  cancel: () => void;
 };
 
 export type Capture = {
   begin: () => Promise<void>;
   finish: () => Promise<string>;
+  cancel: () => Promise<void>;
 };
 
-type OpenListen = {
-  begun: boolean;
-  finishing: boolean;
-  finishNow: boolean;
+type Gate = {
+  promise: Promise<Heard>;
   resolve: (heard: Heard) => void;
   reject: (error: Error) => void;
+  settled: () => boolean;
 };
 
-type ListenGate = {
-  pending: Promise<Heard>;
-  resolve: (heard: Heard) => void;
-  reject: (error: Error) => void;
-};
+type ListenState =
+  | { status: "idle" }
+  | { status: "released" }
+  | { status: "starting"; generation: number; gate: Gate }
+  | { status: "starting-release"; generation: number; gate: Gate }
+  | { status: "starting-cancel"; generation: number; gate: Gate }
+  | { status: "recording"; generation: number; gate: Gate }
+  | { status: "finishing"; generation: number; gate: Gate }
+  | { status: "abandoning"; generation: number; gate: Gate };
 
 export function captureListener(capture: Capture): PushListener {
-  let open: OpenListen | undefined;
-  let releaseBeforeListen = false;
+  let generation = 0;
+  let state: ListenState = { status: "idle" };
+  let cancelTail: Promise<void> | undefined;
 
-  function fail(current: OpenListen, error: Error): void {
-    if (open === current) {
-      open = undefined;
-    }
-
-    current.reject(error);
+  function active(current: number): boolean {
+    return (
+      state.status !== "idle" &&
+      state.status !== "released" &&
+      state.generation === current
+    );
   }
 
-  function settle(current: OpenListen): void {
-    if (current.finishing) {
+  function settleIdle(): void {
+    state = { status: "idle" };
+  }
+
+  function invokeCancel(current: number): void {
+    if (generation !== current) {
       return;
     }
 
-    current.finishing = true;
-    void finish(current);
-  }
+    let pending: Promise<void>;
 
-  async function finish(current: OpenListen): Promise<void> {
     try {
-      const text = await capture.finish();
-
-      if (open === current) {
-        open = undefined;
-      }
-
-      current.resolve({ text: text.trim() });
-    } catch (error) {
-      if (isError(error) || isMessage(error)) {
-        fail(current, heardFailure(error));
-
-        return;
-      }
-
-      fail(current, new Error("could not listen"));
+      pending = capture.cancel().then(
+        () => undefined,
+        () => undefined,
+      );
+    } catch {
+      return;
     }
+
+    cancelTail = pending;
+    void pending.then(() => {
+      if (cancelTail === pending) {
+        cancelTail = undefined;
+      }
+    });
   }
 
-  async function run(current: OpenListen): Promise<void> {
+  async function begin(current: number, gate: Gate): Promise<void> {
     try {
       await capture.begin();
-    } catch (error) {
-      if (isError(error) || isMessage(error)) {
-        fail(current, heardFailure(error));
+    } catch (cause) {
+      if (!active(current)) {
+        return;
+      }
+
+      const cancel = state.status === "starting-cancel";
+
+      settleIdle();
+
+      if (cancel) {
+        invokeCancel(current);
 
         return;
       }
 
-      fail(current, new Error("could not listen"));
+      if (!gate.settled()) {
+        gate.reject(listenError(cause));
+      }
 
       return;
     }
 
-    if (open !== current) {
+    if (!active(current)) {
       return;
     }
 
-    current.begun = true;
+    if (state.status === "starting-cancel") {
+      settleIdle();
+      invokeCancel(current);
 
-    if (current.finishNow) {
-      settle(current);
+      return;
     }
+
+    if (state.status === "starting-release") {
+      state = { status: "finishing", generation: current, gate };
+      void finish(current, gate);
+
+      return;
+    }
+
+    if (state.status !== "starting") {
+      return;
+    }
+
+    state = { status: "recording", generation: current, gate };
+  }
+
+  async function finish(current: number, gate: Gate): Promise<void> {
+    let failure: Error | undefined;
+    let text = "";
+
+    try {
+      text = await capture.finish();
+    } catch (cause) {
+      failure = listenError(cause);
+    }
+
+    if (
+      !active(current) ||
+      (state.status !== "finishing" && state.status !== "abandoning")
+    ) {
+      return;
+    }
+
+    const abandoned = state.status === "abandoning";
+
+    settleIdle();
+
+    if (abandoned || gate.settled() || failure !== undefined) {
+      if (!abandoned && failure !== undefined && !gate.settled()) {
+        gate.reject(failure);
+      }
+
+      return;
+    }
+
+    gate.resolve({ text: text.trim() });
   }
 
   return {
     release() {
-      if (open === undefined) {
-        releaseBeforeListen = true;
+      if (state.status === "idle") {
+        state = { status: "released" };
 
         return;
       }
 
-      if (open.finishing) {
+      if (
+        state.status === "released" ||
+        state.status === "starting-release" ||
+        state.status === "starting-cancel" ||
+        state.status === "finishing" ||
+        state.status === "abandoning"
+      ) {
         return;
       }
 
-      if (!open.begun) {
-        open.finishNow = true;
+      if (state.status === "starting") {
+        state = {
+          status: "starting-release",
+          generation: state.generation,
+          gate: state.gate,
+        };
 
         return;
       }
 
-      settle(open);
+      if (state.status === "recording") {
+        const current = state.generation;
+        const gate = state.gate;
+
+        state = { status: "finishing", generation: current, gate };
+        void finish(current, gate);
+      }
+    },
+    cancel() {
+      if (state.status === "idle" || state.status === "released") {
+        state = { status: "idle" };
+
+        return;
+      }
+
+      if (state.status === "starting" || state.status === "starting-release") {
+        const gate = state.gate;
+
+        state = {
+          status: "starting-cancel",
+          generation: state.generation,
+          gate,
+        };
+        gate.reject(new Error("cancelled"));
+
+        return;
+      }
+
+      if (state.status === "starting-cancel") {
+        state.gate.reject(new Error("cancelled"));
+
+        return;
+      }
+
+      if (state.status === "recording") {
+        const current = state.generation;
+        const gate = state.gate;
+
+        gate.reject(new Error("cancelled"));
+        settleIdle();
+        invokeCancel(current);
+
+        return;
+      }
+
+      if (state.status === "finishing") {
+        const current = state.generation;
+        const gate = state.gate;
+
+        gate.reject(new Error("cancelled"));
+        state = { status: "abandoning", generation: current, gate };
+        invokeCancel(current);
+
+        return;
+      }
+
+      state.gate.reject(new Error("cancelled"));
     },
     listen() {
-      if (open !== undefined) {
+      if (state.status !== "idle" && state.status !== "released") {
         return Promise.reject(new Error("already listening"));
       }
 
-      const finishNow = releaseBeforeListen;
-      releaseBeforeListen = false;
-      const gate = listenGate();
+      const releaseRequested = state.status === "released";
+      const tail = cancelTail;
 
-      const current: OpenListen = {
-        begun: false,
-        finishing: false,
-        finishNow,
-        resolve: gate.resolve,
-        reject: gate.reject,
-      };
+      generation += 1;
+      const current = generation;
+      const gate = openGate();
 
-      open = current;
-      void run(current);
+      state = releaseRequested
+        ? { status: "starting-release", generation: current, gate }
+        : { status: "starting", generation: current, gate };
 
-      return gate.pending;
+      if (tail === undefined) {
+        void begin(current, gate);
+      } else {
+        void tail.then(() => {
+          if (generation !== current || state.status === "idle") {
+            return;
+          }
+
+          void begin(current, gate);
+        });
+      }
+
+      return gate.promise;
     },
   };
 }
 
-function listenGate(): ListenGate {
+function openGate(): Gate {
   let resolve: (heard: Heard) => void = () => {};
   let reject: (error: Error) => void = () => {};
+  let settled = false;
 
-  const pending = new Promise<Heard>((succeed, fail) => {
-    resolve = succeed;
-    reject = fail;
+  const promise = new Promise<Heard>((succeed, fail) => {
+    resolve = (heard) => {
+      if (settled) {
+        return;
+      }
+
+      settled = true;
+      succeed(heard);
+    };
+
+    reject = (error) => {
+      if (settled) {
+        return;
+      }
+
+      settled = true;
+      fail(error);
+    };
   });
 
-  return { pending, resolve, reject };
+  return {
+    promise,
+    resolve,
+    reject,
+    settled: () => settled,
+  };
 }
 
-function isError(value: unknown): value is Error {
-  return value instanceof Error;
-}
-
-function isMessage(value: unknown): value is string {
-  return Object.prototype.toString.call(value) === "[object String]";
-}
-
-function heardFailure(error: Error | string): Error {
-  if (error instanceof Error) {
-    return error;
+function listenError(cause: unknown): Error {
+  if (cause instanceof Error) {
+    return cause;
   }
 
-  return new Error(error);
+  if (isMessage(cause)) {
+    return new Error(cause);
+  }
+
+  return new Error("could not listen");
+}
+
+function isMessage(cause: unknown): cause is string {
+  return Object.prototype.toString.call(cause) === "[object String]";
 }

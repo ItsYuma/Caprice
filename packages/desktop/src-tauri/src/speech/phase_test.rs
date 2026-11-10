@@ -1,6 +1,9 @@
 use super::super::engine::EngineKind;
 use super::super::protocol::{Request, Response};
-use super::{begin, drive, press, release, Job, Mic, Phase, Press, Released};
+use super::{
+    begin, cancel_mic, cease, drive, press, publish, settle, Cancelled, Follow, Job, ListenOutcome,
+    Mic, Phase, Press, Stop,
+};
 
 struct Token(u8);
 
@@ -10,6 +13,7 @@ fn job(pcm: &str) -> Job {
         rate: 16_000,
         model: "/models/speech".into(),
         engine: EngineKind::Onnx,
+        follow: Follow::Clip,
     }
 }
 
@@ -38,6 +42,9 @@ fn an_idle_worker_loads_once_and_then_stays_live() {
                     },
                 ))
             }
+            Request::Feed { .. } | Request::Finish | Request::Reset | Request::Cancel => {
+                panic!("streamed")
+            }
         },
     );
 
@@ -65,7 +72,13 @@ fn an_idle_worker_loads_once_and_then_stays_live() {
                     },
                 ))
             }
-            Request::Load { .. } => panic!("reloaded"),
+            Request::Load { .. }
+            | Request::Feed { .. }
+            | Request::Finish
+            | Request::Reset
+            | Request::Cancel => {
+                panic!("reloaded")
+            }
         },
     );
 
@@ -87,7 +100,13 @@ fn a_failed_load_drops_the_worker_and_a_failed_clip_keeps_it() {
                     message: "missing weights".into(),
                 },
             )),
-            Request::Transcribe { .. } => panic!("transcribed after a failed load"),
+            Request::Transcribe { .. }
+            | Request::Feed { .. }
+            | Request::Finish
+            | Request::Reset
+            | Request::Cancel => {
+                panic!("transcribed after a failed load")
+            }
         },
     );
     assert!(matches!(phase, Phase::Idle));
@@ -123,18 +142,126 @@ fn a_broken_pipe_returns_to_idle() {
 }
 
 #[test]
-fn the_microphone_is_either_idle_or_hot() {
+fn the_microphone_is_idle_recording_or_finishing() {
     assert!(matches!(press(Mic::<Token>::Idle), Press::Open));
-    assert!(matches!(press(Mic::Hot(Token(1))), Press::Busy(Token(1))));
     assert!(matches!(
-        release(Mic::Hot(Token(4))),
-        Released::Captured(Token(4))
+        press(Mic::Recording(Token(1))),
+        Press::Busy(Mic::Recording(Token(1)))
     ));
-    assert!(matches!(release::<Token>(Mic::Idle), Released::Idle));
+    assert!(matches!(
+        press(Mic::<Token>::Finishing),
+        Press::Busy(Mic::Finishing)
+    ));
+
+    let (mic, stopped) = cease(Mic::Recording(Token(4)));
+    assert!(matches!(mic, Mic::Finishing));
+    assert!(matches!(stopped, Stop::Begin(Token(4))));
+    let (mic, stopped) = cease::<Token>(mic);
+    assert!(matches!(mic, Mic::Finishing));
+    assert!(matches!(stopped, Stop::Idle));
+    assert!(matches!(cease::<Token>(Mic::Idle).1, Stop::Idle));
+    assert!(matches!(settle::<Token>(Mic::Finishing), Mic::Idle));
+    assert!(matches!(
+        settle(Mic::Recording(Token(3))),
+        Mic::Recording(Token(3))
+    ));
+
+    let (mic, cancelled) = cancel_mic(Mic::Recording(Token(8)));
+    assert!(matches!(mic, Mic::Idle));
+    assert!(matches!(cancelled, Cancelled::Stopped(Token(8))));
+    assert!(matches!(
+        cancel_mic::<Token>(Mic::Finishing).1,
+        Cancelled::Pending
+    ));
+    assert!(matches!(cancel_mic::<Token>(Mic::Idle).1, Cancelled::Idle));
 }
 
 #[test]
 fn begin_on_a_live_worker_does_not_spawn() {
     let step = begin(Phase::Live(Token(9)), job("pcm"));
     assert!(matches!(step, super::Drive::Send { .. }));
+}
+
+#[test]
+fn loading_stops_when_the_worker_is_ready() {
+    let mut loading = job("");
+    loading.follow = Follow::Load;
+    let (phase, result) = drive(
+        Phase::Idle,
+        loading,
+        || Ok(Token(1)),
+        |worker, request| match request {
+            Request::Load { engine, .. } => {
+                assert_eq!(engine, "onnx");
+                Ok((worker, Response::Ready))
+            }
+            Request::Transcribe { .. }
+            | Request::Feed { .. }
+            | Request::Finish
+            | Request::Reset
+            | Request::Cancel => {
+                panic!("followed the load")
+            }
+        },
+    );
+    assert_eq!(result.unwrap(), "");
+    assert!(matches!(phase, Phase::Live(Token(1))));
+
+    let mut again = job("");
+    again.follow = Follow::Load;
+    let (phase, result) = drive(
+        phase,
+        again,
+        || panic!("spawned"),
+        |_worker, _request| panic!("sent"),
+    );
+    assert_eq!(result.unwrap(), "");
+    assert!(matches!(phase, Phase::Live(Token(1))));
+}
+
+#[test]
+fn an_error_discards_a_transcript() {
+    let heard = publish(ListenOutcome {
+        transcript: Ok("hello".to_string()),
+        feed: Ok(()),
+        microphone: None,
+        cancelled: false,
+    });
+    assert_eq!(heard.unwrap(), "hello");
+
+    let cancelled = publish(ListenOutcome {
+        transcript: Ok("hello".to_string()),
+        feed: Ok(()),
+        microphone: None,
+        cancelled: true,
+    });
+    assert_eq!(cancelled.unwrap_err(), "listening cancelled");
+
+    let failed = publish(ListenOutcome {
+        transcript: Ok("hello".to_string()),
+        feed: Err("feed failed".to_string()),
+        microphone: Some("microphone closed".to_string()),
+        cancelled: false,
+    });
+    assert_eq!(failed.unwrap_err(), "microphone closed");
+
+    let fed = publish(ListenOutcome {
+        transcript: Ok("hello".to_string()),
+        feed: Err("feed failed".to_string()),
+        microphone: None,
+        cancelled: false,
+    });
+    assert_eq!(fed.unwrap_err(), "feed failed");
+}
+
+#[test]
+fn a_partial_during_a_clip_drops_the_worker() {
+    let (phase, result) = drive(
+        Phase::Live(Token(1)),
+        job("pcm"),
+        || panic!("spawned"),
+        |worker, _request| Ok((worker, Response::Partial { text: "no".into() })),
+    );
+    assert!(matches!(phase, Phase::Idle));
+    assert_eq!(result.unwrap_err(), "speech worker broke the protocol");
 }

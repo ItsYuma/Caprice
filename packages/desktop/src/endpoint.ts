@@ -1,33 +1,32 @@
 import {
   readModelEndpoint,
+  readShellModelConfig,
+  type ModelConfig,
   type ModelEndpoint,
   type ModelEnv,
+  type ShellModelPayload,
 } from "@caprice/core";
 
-export type ShellModelEndpoint = {
-  url: string;
-  model: string;
-  apiKey: string;
-};
+export type { ShellModelPayload };
 
 export type ModelEndpointSource = {
   inShell: boolean;
-  readShell: () => Promise<ShellModelEndpoint>;
+  readShell: () => Promise<ShellModelPayload>;
 };
 
-export async function loadModelEndpoint(
+export type ModelSource =
+  | { where: "browser"; endpoint: ModelEndpoint }
+  | { where: "shell"; config: ModelConfig };
+
+export async function loadModelSource(
   env: ModelEnv,
   source: ModelEndpointSource,
-): Promise<ModelEndpoint> {
+): Promise<ModelSource> {
   if (!source.inShell) {
-    return readModelEndpoint(env);
+    return { where: "browser", endpoint: readModelEndpoint(env) };
   }
 
   const shell = await source.readShell();
 
-  return readModelEndpoint({
-    CAPRICE_MODEL_URL: shell.url,
-    CAPRICE_MODEL: shell.model,
-    CAPRICE_MODEL_API_KEY: shell.apiKey,
-  });
+  return { where: "shell", config: readShellModelConfig(shell) };
 }

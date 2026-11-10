@@ -114,6 +114,72 @@ fn a_rejected_reply_engine_does_not_spawn() {
 }
 
 #[test]
+fn http_rejects_an_oversized_body() {
+    let _lock = env_lock();
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("bind");
+    let port = listener.local_addr().expect("addr").port();
+    let server = std::thread::spawn(move || {
+        let (mut stream, _) = listener.accept().expect("accept");
+        let _ = read_request(&mut stream);
+        let header = "HTTP/1.1 200 OK\r\ncontent-length: 9000000\r\nconnection: close\r\n\r\n";
+        stream.write_all(header.as_bytes()).expect("write");
+    });
+    let _url = EnvGuard::set(
+        "CAPRICE_TTS_URL",
+        Some(&format!("http://127.0.0.1:{port}/custom/speech")),
+    );
+    let _engine = EnvGuard::set("CAPRICE_TTS_ENGINE", Some("http"));
+    let _model = EnvGuard::set("CAPRICE_TTS_MODEL", Some("shell-voice"));
+    let _voice = EnvGuard::set("CAPRICE_TTS_VOICE", None);
+    let _key = EnvGuard::set("CAPRICE_TTS_API_KEY", None);
+    let _deadline = EnvGuard::set("CAPRICE_TTS_DEADLINE_MS", None);
+    assert_eq!(spoken("hi").unwrap_err(), "speech reply is too large");
+    let _ = server.join();
+}
+
+#[test]
+fn http_times_out_when_the_server_stalls() {
+    let _lock = env_lock();
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("bind");
+    let port = listener.local_addr().expect("addr").port();
+    let server = std::thread::spawn(move || {
+        let (mut stream, _) = listener.accept().expect("accept");
+        let _ = read_request(&mut stream);
+        std::thread::sleep(std::time::Duration::from_secs(3));
+    });
+    let _url = EnvGuard::set(
+        "CAPRICE_TTS_URL",
+        Some(&format!("http://127.0.0.1:{port}/custom/speech")),
+    );
+    let _engine = EnvGuard::set("CAPRICE_TTS_ENGINE", Some("http"));
+    let _model = EnvGuard::set("CAPRICE_TTS_MODEL", Some("shell-voice"));
+    let _voice = EnvGuard::set("CAPRICE_TTS_VOICE", None);
+    let _key = EnvGuard::set("CAPRICE_TTS_API_KEY", None);
+    let _deadline = EnvGuard::set("CAPRICE_TTS_DEADLINE_MS", Some("500"));
+    let started = std::time::Instant::now();
+    let stalled = spoken("hi").unwrap_err();
+    assert!(
+        started.elapsed() < std::time::Duration::from_secs(2),
+        "{stalled}"
+    );
+    assert_eq!(stalled, "speech reply timed out");
+    let _ = server.join();
+}
+
+#[test]
+fn a_bad_tts_deadline_is_reported() {
+    let _lock = env_lock();
+    let _engine = EnvGuard::set("CAPRICE_TTS_ENGINE", Some("http"));
+    let _url = EnvGuard::set("CAPRICE_TTS_URL", Some("http://127.0.0.1:9/speech"));
+    let _model = EnvGuard::set("CAPRICE_TTS_MODEL", Some("shell-voice"));
+    let _deadline = EnvGuard::set("CAPRICE_TTS_DEADLINE_MS", Some("nope"));
+    assert_eq!(
+        spoken("hi").unwrap_err(),
+        "CAPRICE_TTS_DEADLINE_MS is not a whole number of milliseconds"
+    );
+}
+
+#[test]
 fn speech_credit_follows_the_reply_engine() {
     let _lock = env_lock();
     let _engine = EnvGuard::set("CAPRICE_TTS_ENGINE", None);

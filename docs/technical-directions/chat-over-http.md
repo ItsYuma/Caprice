@@ -1,11 +1,13 @@
 # Chat over HTTP
 
-The brain is a chat endpoint. Caprice does not load its weights.
+The brain is accessed through an adapter. The current adapter posts chat completions; core owns the assistant turn and provider-independent conversation/tool events. A new wire protocol is another adapter, not another branch in the session.
 
-`CAPRICE_MODEL_URL` is the full URL. `CAPRICE_MODEL` is the `model` field. The body is `{ model, messages }`. The reply is the string at `choices[0].message.content`. `CAPRICE_MODEL_API_KEY` is an optional bearer token. An empty key sends no authorization header. The source has no host, port, or model name.
+`CAPRICE_MODEL_URL` is the full chat URL and `CAPRICE_MODEL` selects the model. `CAPRICE_MODEL_API_KEY` is optional. `CAPRICE_MODEL_PROTOCOL` is `text` by default or `native`.
 
-`chatModel` turns a session turn into those messages. The persona is the system message. Each stored line is a user or assistant message. `hostText` is added only when it is not already the last host line. `stubModel` stays for tests and does not post.
+Text mode posts `{ model, messages }` and interprets the documented whole-reply call convention. Native mode supplies registered function tools and preserves assistant calls and tool-role results. The assistant caps tool executions at four and requests a closing answer with tools disabled. The original user request remains separate from results in either mode.
 
-Inside the Tauri window, the page reads the process environment through `model_endpoint`, and Rust posts the body with `model_complete`. Outside the window, Vite passes the same names and the page posts. That endpoint must allow the page origin.
+Inside Tauri, `model_endpoint` returns the model, the protocol, and `timeoutMs`. It does not return the URL or the key. `model_complete` accepts the chat body and a request identifier. Rust obtains the URL and bearer token itself. `model_cancel` targets that identifier. The page uses `timeoutMs` when the shell sends it, and 60 seconds otherwise. The transport bounds response size and duration. Outside Tauri, the browser posts to the configured endpoint, which must permit that page origin; cancellation aborts fetch.
 
-Set aside: loading the chat weights in the shell or in a TypeScript worker, a default model, and an agent framework in front of the endpoint. The session already owns the turns. The endpoint already speaks this body, so another model is a different URL and name.
+Model access and process ownership are separate. An external endpoint may run locally or remotely. A managed runtime can start a configured local service and wait for readiness before using the same adapter. The runtime owns only children it starts, and model files are not inferred from a model name or silently downloaded.
+
+Mastra remains deferred. Provider adapters, typed tools, turn states, and managed processes meet the current requirements. Revisit a framework when durable workflows, memory services, or tracing justify replacing existing responsibilities. Do not run two competing conversation loops.

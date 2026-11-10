@@ -45,6 +45,9 @@ export function paceListener(
   let releasedAt = 0;
 
   return {
+    cancel() {
+      listener.cancel();
+    },
     release() {
       if (open) {
         try {

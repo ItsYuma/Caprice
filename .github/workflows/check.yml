@@ -6,14 +6,50 @@ on:
 
 jobs:
   check:
-    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: 1.4.4
+      - uses: dtolnay/rust-toolchain@1.99.1
+        with:
+          components: rustfmt, clippy
+      - name: Linux packages
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake pkg-config libgtk-3-dev libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev patchelf libssl-dev libxdo-dev
+      - name: Windows CMake
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          if (-not (Get-Command cmake -ErrorAction SilentlyContinue)) {
+            $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+            $install = & $vswhere -latest -products * -property installationPath
+            $bin = Join-Path $install.Trim() "Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin"
+            Add-Content -Path $env:GITHUB_PATH -Value $bin
+            $env:PATH = "$bin;$env:PATH"
+          }
+          cmake --version
+      - name: CMake
+        if: runner.os == 'Linux'
+        run: cmake --version
       - run: bun install --frozen-lockfile
-      - run: bun test
+      - run: bun run test
       - run: bun run lint
       - run: bun run typecheck
       - run: bun run format:check
+      - name: cargo fmt
+        working-directory: packages/desktop/src-tauri
+        run: cargo fmt --check
+      - name: cargo test
+        working-directory: packages/desktop/src-tauri
+        run: cargo test
+      - name: cargo clippy
+        working-directory: packages/desktop/src-tauri
+        run: cargo clippy -- -D warnings

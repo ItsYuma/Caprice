@@ -34,6 +34,7 @@ test("a broken clock still lets the hold finish", async () => {
 
         return "hello";
       },
+      async cancel() {},
     }),
     {
       current: {
@@ -84,6 +85,7 @@ test("hear starts when the hold releases", async () => {
           started();
         });
       },
+      async cancel() {},
     }),
     note,
     () => time,

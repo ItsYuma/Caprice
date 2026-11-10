@@ -1,10 +1,11 @@
 [[permission]]
 identifier = "allow-speech-model"
-description = "Transcribe with the resident Parakeet model, listen on the default microphone, and request spoken audio."
+description = "Listen on the default microphone, cancel that listen, and request or cancel spoken audio."
 commands.allow = [
-  "speech_transcribe",
   "speech_listen_start",
   "speech_listen_stop",
+  "speech_cancel",
   "speech_speak",
+  "speech_reply_cancel",
   "speech_credit",
 ]

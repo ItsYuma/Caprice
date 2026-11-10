@@ -178,7 +178,7 @@ test("a device that never opens plays the clip", async () => {
       seen.push(frame.live);
     });
 
-    await playSpeech(new Uint8Array([1, 2, 3, 4]), 20);
+    await playSpeech(new Uint8Array([1, 2, 3, 4]), undefined, 20);
     expect(seen.includes(true)).toBe(true);
     expect(ScriptedContext.latest?.started).toBe(0);
     expect(ScriptedContext.latest?.decoded).toBe(0);

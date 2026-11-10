@@ -154,6 +154,50 @@ function Install-CapriceLinker {
   }
 }
 
+function Get-CapriceCmakeBin {
+  $bins = @()
+  $vswhere = Join-Path ${env:ProgramFiles(x86)} "Microsoft Visual Studio\Installer\vswhere.exe"
+  if (Test-Path -LiteralPath $vswhere) {
+    $install = & $vswhere -latest -products * -property installationPath
+    if ($LASTEXITCODE -eq 0 -and -not [string]::IsNullOrWhiteSpace("$install")) {
+      $bins += Join-Path "$install".Trim() "Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin"
+    }
+  }
+  foreach ($root in @(${env:ProgramFiles(x86)}, $env:ProgramFiles)) {
+    if ([string]::IsNullOrWhiteSpace($root)) {
+      continue
+    }
+    foreach ($year in @("2022", "18")) {
+      foreach ($edition in @("BuildTools", "Community", "Professional", "Enterprise")) {
+        $bins += Join-Path $root "Microsoft Visual Studio\$year\$edition\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin"
+      }
+    }
+  }
+  foreach ($bin in $bins) {
+    if (Test-Path -LiteralPath (Join-Path $bin "cmake.exe")) {
+      return $bin
+    }
+  }
+  return $null
+}
+
+function Install-CapriceCmake {
+  $command = Get-Command cmake -ErrorAction SilentlyContinue
+  if ($command -and (Test-CapriceExecutable $command.Source)) {
+    return
+  }
+  $bin = Get-CapriceCmakeBin
+  if ($bin) {
+    $env:PATH = "$bin;$env:PATH"
+    return
+  }
+  if ($SkipSystem) {
+    Write-Error "CMake is required to build speech."
+  }
+  Write-Host "Installing CMake. transcribe.cpp needs it."
+  Install-CapriceTool "Kitware.CMake"
+}
+
 function Install-CapriceRust {
   $cargoBin = Join-Path $env:USERPROFILE ".cargo\bin"
   $rustup = Join-Path $cargoBin "rustup.exe"
@@ -189,6 +233,10 @@ if (-not $SkipSystem) {
   }
   Install-CapriceLinker
   Install-CapriceRust
+}
+
+if (-not ($args -contains "--help" -or $args -contains "-h")) {
+  Install-CapriceCmake
 }
 
 $env:BUN_VERSION = "1.4.4"

@@ -1,4 +1,4 @@
 [[permission]]
 identifier = "allow-model-endpoint"
-description = "Read the model URL, model name, and optional API key from the process environment."
-commands.allow = ["model_endpoint", "model_complete"]
+description = "Read the model name, protocol, and deadline, post a chat body, and cancel that post."
+commands.allow = ["model_endpoint", "model_complete", "model_cancel"]

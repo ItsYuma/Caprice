@@ -42,6 +42,7 @@ test("the window is the box and hides the conversation", () => {
   expect(html).not.toContain("Show text");
   expect(html).not.toContain("Say something");
   expect(html).not.toContain("data-who");
+  expect(html).not.toContain('id="allow"');
 });
 
 test("thinking is the only line while she works", () => {
@@ -66,6 +67,7 @@ test("thinking is the only line while she works", () => {
   expect(presenceMode("busy", true)).toBe("speaking");
   expect(presenceMode("listening", false)).toBe("listening");
   expect(presenceMode("idle", false)).toBe("idle");
+  expect(presenceMode("armed", false)).toBe("idle");
 });
 
 test("the box shows where the turn spent time", () => {
