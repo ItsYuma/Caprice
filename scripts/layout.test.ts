@@ -7,6 +7,7 @@ import {
   commandEnv,
   configText,
   containerCommand,
+  devRelease,
   filled,
   launchEnv,
   launcherPath,
@@ -17,6 +18,7 @@ import {
   platformOf,
   prependHomeBins,
   readConfig,
+  tauriDevArgs,
   windowsCmakeCandidates,
   woofDir,
   venvPython,
@@ -254,9 +256,32 @@ test("a shell variable wins over the saved config and python stays on PATH", () 
   expect(containerCommand("/work/caprice", "caprice", merged)).not.toContain(
     "CAPRICE_MODEL_DEADLINE_MS",
   );
+  const plainDev = containerCommand("/work/caprice", "caprice", merged);
+  expect(plainDev).toContain("exec bun run dev");
+  expect(plainDev).not.toContain("--release");
+  expect(containerCommand("/work/caprice", "caprice", merged, true)).toContain(
+    "exec bun run dev -- --release",
+  );
   expect(containerCommand("/work/caprice", "caprice", merged)).toContain(
     "BASH_FUNC_",
   );
+  expect(devRelease(["bun", "scripts/launch.ts"])).toBe(false);
+  expect(devRelease(["bun", "scripts/launch.ts", "--release"])).toBe(true);
+  expect(tauriDevArgs(false)).toEqual([
+    "run",
+    "--filter",
+    "@caprice/desktop",
+    "tauri",
+    "dev",
+  ]);
+  expect(tauriDevArgs(true)).toEqual([
+    "run",
+    "--filter",
+    "@caprice/desktop",
+    "tauri",
+    "dev",
+    "--release",
+  ]);
   expect(
     commandEnv([
       ["PATH", "/usr/bin"],

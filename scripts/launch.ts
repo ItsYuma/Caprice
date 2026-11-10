@@ -5,11 +5,13 @@ import {
   commandEnv,
   configPath,
   containerCommand,
+  devRelease,
   joinPath,
   launchEnv,
   platformOf,
   prependHomeBins,
   readConfig,
+  tauriDevArgs,
   windowsCmakeCandidates,
   type LaunchEnv,
   type Platform,
@@ -64,10 +66,15 @@ async function launch(): Promise<number> {
   }
 
   const container = saved?.container ?? "";
+  const release = devRelease(process.argv);
 
   if (container.length > 0 && !insideFedora()) {
     const child = Bun.spawn(
-      ["bash", "-lc", containerCommand(process.cwd(), container, merged)],
+      [
+        "bash",
+        "-lc",
+        containerCommand(process.cwd(), container, merged, release),
+      ],
       {
         cwd: process.cwd(),
         env: spawnEnv(),
@@ -82,16 +89,13 @@ async function launch(): Promise<number> {
 
   apply(merged);
 
-  const child = Bun.spawn(
-    [process.execPath, "run", "--filter", "@caprice/desktop", "tauri", "dev"],
-    {
-      cwd: process.cwd(),
-      env: spawnEnv(),
-      stdin: "inherit",
-      stdout: "inherit",
-      stderr: "inherit",
-    },
-  );
+  const child = Bun.spawn([process.execPath, ...tauriDevArgs(release)], {
+    cwd: process.cwd(),
+    env: spawnEnv(),
+    stdin: "inherit",
+    stdout: "inherit",
+    stderr: "inherit",
+  });
 
   return child.exited;
 }

@@ -2,6 +2,8 @@ const playbackFailed = "could not play speech";
 
 const playheadSeconds = 0.032;
 
+const deviceLimit = 1500;
+
 export type Frame = {
   live: boolean;
   samples: Float32Array;
@@ -91,6 +93,7 @@ export function stopPlayback(): void {
 export async function playSpeech(
   bytes: Uint8Array,
   signal?: AbortSignal,
+  limit = deviceLimit,
 ): Promise<void> {
   if (signal?.aborted) {
     throw new Error("cancelled");
@@ -114,25 +117,34 @@ export async function playSpeech(
 
   signal?.addEventListener("abort", onAbort, { once: true });
 
-  let context: AudioContext | undefined;
+  const held: Held = { context: undefined };
 
   try {
-    context = new AudioContext();
-    await resumeContext(context);
-    throwIfCancelled(signal);
+    const opened = await firstReady(
+      openDevice(bytes, mine, held, signal),
+      limit,
+      signal,
+    );
 
-    if (mine !== generation) {
+    if (opened === undefined) {
+      await releaseHeld(held);
+      throwIfCancelled(signal);
+
+      if (mine !== generation) {
+        return;
+      }
+
+      await playClip(bytes, mine);
+      throwIfCancelled(signal);
+
       return;
     }
 
-    const audio = await context.decodeAudioData(copiedBytes(bytes));
-    throwIfCancelled(signal);
-
-    if (mine !== generation) {
+    if (opened === "stale") {
       return;
     }
 
-    await playBuffer(context, audio, mine);
+    await playBuffer(opened.context, opened.audio, mine);
     throwIfCancelled(signal);
   } catch (error) {
     if (mine === generation) {
@@ -147,10 +159,180 @@ export async function playSpeech(
   } finally {
     signal?.removeEventListener("abort", onAbort);
 
-    if (context !== undefined) {
+    if (held.context !== undefined) {
+      const context = held.context;
+      held.context = undefined;
       await closeContext(context);
     }
   }
+}
+
+type Held = {
+  context: AudioContext | undefined;
+};
+
+type Opened = {
+  context: AudioContext;
+  audio: AudioBuffer;
+};
+
+async function releaseHeld(held: Held): Promise<void> {
+  const context = held.context;
+
+  held.context = undefined;
+
+  if (context !== undefined) {
+    await closeContext(context);
+  }
+}
+
+function firstReady<T>(
+  pending: Promise<T>,
+  limit: number,
+  signal: AbortSignal | undefined,
+): Promise<T | undefined> {
+  return new Promise((resolve, reject) => {
+    let settled = false;
+
+    const finish = (run: () => void) => {
+      if (settled) {
+        return;
+      }
+
+      settled = true;
+      clearTimeout(timer);
+      signal?.removeEventListener("abort", onAbort);
+      run();
+    };
+
+    const onAbort = () => {
+      finish(() => {
+        reject(new Error("cancelled"));
+      });
+    };
+
+    const timer = setTimeout(() => {
+      finish(() => {
+        resolve(undefined);
+      });
+    }, limit);
+
+    if (signal?.aborted) {
+      onAbort();
+    } else {
+      signal?.addEventListener("abort", onAbort, { once: true });
+    }
+
+    pending.then(
+      (value) => {
+        finish(() => {
+          resolve(value);
+        });
+      },
+      (error) => {
+        finish(() => {
+          reject(error);
+        });
+      },
+    );
+  });
+}
+
+async function openDevice(
+  bytes: Uint8Array,
+  mine: number,
+  held: Held,
+  signal: AbortSignal | undefined,
+): Promise<Opened | "stale"> {
+  const context = new AudioContext();
+
+  held.context = context;
+  await resumeContext(context);
+  throwIfCancelled(signal);
+
+  if (mine !== generation) {
+    return "stale";
+  }
+
+  const audio = await context.decodeAudioData(copiedBytes(bytes));
+  throwIfCancelled(signal);
+
+  if (mine !== generation) {
+    return "stale";
+  }
+
+  return { context, audio };
+}
+
+function playClip(bytes: Uint8Array, mine: number): Promise<void> {
+  if (mine !== generation) {
+    return Promise.resolve();
+  }
+
+  const url = URL.createObjectURL(
+    new Blob([copiedBytes(bytes)], { type: "audio/wav" }),
+  );
+
+  const audio = new Audio(url);
+
+  return new Promise((resolve, reject) => {
+    let settled = false;
+
+    const finish = (failed: boolean) => {
+      if (settled) {
+        return;
+      }
+
+      settled = true;
+
+      if (activeStop === stop) {
+        activeStop = undefined;
+      }
+
+      URL.revokeObjectURL(url);
+
+      if (mine === generation) {
+        publish(restFrame());
+      }
+
+      if (failed) {
+        reject(new Error(playbackFailed));
+
+        return;
+      }
+
+      resolve();
+    };
+
+    const stop = () => {
+      audio.pause();
+      finish(false);
+    };
+
+    activeStop = stop;
+    audio.addEventListener("ended", () => {
+      finish(false);
+    });
+    audio.addEventListener("error", () => {
+      finish(true);
+    });
+
+    void audio.play().then(
+      () => undefined,
+      () => {
+        finish(true);
+      },
+    );
+
+    if (!settled && mine === generation) {
+      publish({
+        live: true,
+        samples: new Float32Array(),
+        rate: 0,
+        heard: 0,
+      });
+    }
+  });
 }
 
 function throwIfCancelled(signal: AbortSignal | undefined): void {

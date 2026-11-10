@@ -561,8 +561,7 @@ export function configError(config: CapriceConfig): string | undefined {
   }
 
   if (config.sttModel.length === 0) {
-    const name =
-      config.sttEngine.length === 0 ? "bark" : config.sttEngine;
+    const name = config.sttEngine.length === 0 ? "bark" : config.sttEngine;
 
     return `Pass --stt-model for the ${name} engine.`;
   }
@@ -702,10 +701,25 @@ export function launcherText(
   return posixLauncher(repo, container);
 }
 
+export function devRelease(argv: readonly string[]): boolean {
+  return argv.includes("--release");
+}
+
+export function tauriDevArgs(release: boolean): string[] {
+  const args = ["run", "--filter", "@caprice/desktop", "tauri", "dev"];
+
+  if (release) {
+    args.push("--release");
+  }
+
+  return args;
+}
+
 export function containerCommand(
   repo: string,
   container: string,
   env: LaunchEnv,
+  release = false,
 ): string {
   const inner = [
     "export CAPRICE_CONTAINER=1",
@@ -729,7 +743,7 @@ export function containerCommand(
     exportEnv("CAPRICE_TTS_DEADLINE_MS", env.ttsDeadlineMs),
     exportEnv("CAPRICE_PYTHON", env.python),
     `cd ${shellQuote(repo)}`,
-    "exec bun run dev",
+    release ? "exec bun run dev -- --release" : "exec bun run dev",
   ]
     .filter((line) => line.length > 0)
     .join("; ");
