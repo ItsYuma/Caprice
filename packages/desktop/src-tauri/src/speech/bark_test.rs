@@ -1,5 +1,4 @@
 use std::fs;
-use std::path::PathBuf;
 
 use telmo::parakeet::Token;
 
@@ -7,7 +6,7 @@ use super::{load_at, place_tokens, token_span};
 
 #[test]
 fn bark_refuses_a_directory_without_the_checkpoint() {
-    let dir = PathBuf::from(format!("/tmp/caprice-bark-{}", std::process::id()));
+    let dir = std::env::temp_dir().join(format!("caprice-bark-{}", std::process::id()));
     let _ = fs::remove_dir_all(&dir);
     fs::create_dir(&dir).unwrap();
 

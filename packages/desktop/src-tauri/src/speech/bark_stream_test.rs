@@ -157,3 +157,49 @@ fn a_word_that_starts_before_the_slice_stays() {
     utterance.absorb(&[token(0, 10_000, 6)], 32_000, 64_000);
     assert_eq!(ids(&utterance), vec![4, 5, 6]);
 }
+
+#[test]
+fn a_token_that_crosses_the_commit_boundary_waits() {
+    let mut utterance = Utterance::new();
+    utterance.absorb(&[token(20_000, 40_000, 1), token(0, 10_000, 2)], 0, 32_000);
+    assert_eq!(ids(&utterance), vec![2]);
+    utterance.absorb(&[token(0, 10_000, 2), token(20_000, 40_000, 1)], 0, 64_000);
+    assert_eq!(ids(&utterance), vec![2, 1]);
+}
+
+#[test]
+fn an_overlapping_revision_replaces_the_earlier_token() {
+    let mut utterance = Utterance::new();
+    utterance.absorb(&[token(20_000, 50_000, 1)], 0, 64_000);
+    utterance.absorb(&[token(0, 20_000, 2)], 32_000, 96_000);
+    assert_eq!(ids(&utterance), vec![2]);
+}
+
+#[test]
+fn overlapping_tokens_in_one_window_are_kept_once() {
+    let mut utterance = Utterance::new();
+    utterance.absorb(&[token(0, 20_000, 1), token(10_000, 18_000, 2)], 0, 32_000);
+    assert_eq!(ids(&utterance), vec![1]);
+}
+
+#[test]
+fn committed_audio_before_the_left_context_is_dropped() {
+    let mut utterance = Utterance::new();
+    utterance.audio = vec![0.0; 256_000];
+    utterance.center = 192_000;
+    utterance.trim();
+    assert_eq!(utterance.origin, 32_000);
+    assert_eq!(utterance.audio.len(), 224_000);
+}
+
+#[test]
+fn a_failed_utterance_does_not_return_its_text() {
+    let mut utterance = Utterance::new();
+    utterance.tokens.push(token(0, 10, 4));
+    let err = utterance
+        .fail("bark window failed".to_string())
+        .unwrap_err();
+    assert_eq!(err, "bark window failed");
+    assert!(utterance.tokens.is_empty());
+    assert_eq!(utterance.failed.as_deref(), Some("bark window failed"));
+}

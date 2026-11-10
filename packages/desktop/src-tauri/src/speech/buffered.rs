@@ -71,6 +71,9 @@ impl<D> Utterance<D> {
 impl<D: RangeDecoder> Utterance<D> {
     pub(super) fn feed(&mut self, samples: &[f32]) -> Result<String, String> {
         if !samples.is_empty() {
+            if self.audio.len().saturating_add(samples.len()) > super::limit::stream_samples() {
+                return Err("recording is too long".to_string());
+            }
             self.audio.extend_from_slice(samples);
             self.decoder.observe(&self.audio)?;
             self.commit_ready()?;

@@ -4,8 +4,8 @@ use std::thread::JoinHandle;
 
 use transcribe_cpp::sys::TRANSCRIBE_EXT_KIND_PARAKEET_BUFFERED_STREAM;
 use transcribe_cpp::{
-    ExtSlot, ParakeetBufferedStreamOptions, RunOptions, Session, Stream, StreamExtension,
-    StreamOptions,
+    CancelToken, ErrorKind, ExtSlot, Feature, ParakeetBufferedStreamOptions, RunOptions, Session,
+    Stream, StreamExtension, StreamOptions,
 };
 
 use super::buffered::{RangeDecoder, Utterance, CHUNK_MS, LEFT_MS, RATE, RIGHT_MS};
@@ -17,12 +17,15 @@ const STACK: usize = 16 * 1024 * 1024;
 pub(super) struct UnifiedEngine {
     tx: Sender<Ask>,
     thread: Option<JoinHandle<()>>,
+    cancel: CancelToken,
+    cancellable: bool,
 }
 
 enum Ask {
     Feed(Vec<f32>, Sender<Result<String, String>>),
     Finish(Sender<Result<String, String>>),
     Transcribe(Vec<f32>, Sender<Result<String, String>>),
+    Reset(Sender<()>),
     Stop,
 }
 
@@ -60,7 +63,7 @@ impl RangeDecoder for Native<'_, '_> {
             return Err("parakeet audio went backwards".to_string());
         }
         if audio.len() > self.fed {
-            self.stream.feed(&audio[self.fed..]).map_err(show)?;
+            self.stream.feed(&audio[self.fed..]).map_err(show_run)?;
             self.fed = audio.len();
         }
         self.pull();
@@ -76,7 +79,7 @@ impl RangeDecoder for Native<'_, '_> {
         commit_end: usize,
     ) -> Result<String, String> {
         if !self.finalized && commit_end == audio.len() && window_end == audio.len() {
-            self.stream.finalize().map_err(show)?;
+            self.stream.finalize().map_err(show_run)?;
             self.finalized = true;
             self.pull();
         }
@@ -109,6 +112,29 @@ impl UnifiedEngine {
         self.round(|reply| Ask::Transcribe(samples.to_vec(), reply))
     }
 
+    pub(super) fn cancel(&self) {
+        if self.cancellable {
+            self.cancel.cancel();
+        }
+    }
+
+    pub(super) fn cancellation(&self) -> Option<CancelToken> {
+        if self.cancellable {
+            Some(self.cancel.clone())
+        } else {
+            None
+        }
+    }
+
+    pub(super) fn reset(&mut self) {
+        self.cancel.reset();
+        let (tx, rx) = mpsc::channel();
+        if self.tx.send(Ask::Reset(tx)).is_err() {
+            return;
+        }
+        let _ = rx.recv();
+    }
+
     fn round(
         &self,
         make: impl FnOnce(Sender<Result<String, String>>) -> Ask,
@@ -134,6 +160,7 @@ impl Transcriber for UnifiedEngine {
 
 impl Drop for UnifiedEngine {
     fn drop(&mut self) {
+        self.cancel();
         let _ = self.tx.send(Ask::Stop);
         if let Some(thread) = self.thread.take() {
             let _ = thread.join();
@@ -151,27 +178,43 @@ pub(super) fn load_at(path: &Path) -> Result<UnifiedEngine, String> {
     ) {
         return Err("parakeet model is not unified English 0.6B".to_string());
     }
-    let session = model.session().map_err(show)?;
-    spawn(session)
+    let cancellable = model.supports(Feature::Cancellation);
+    let mut session = model.session().map_err(show)?;
+    let cancel = CancelToken::new();
+    if cancellable {
+        session.set_cancel_token(&cancel);
+    }
+    spawn(session, cancel, cancellable)
 }
 
-fn spawn(session: Session) -> Result<UnifiedEngine, String> {
+fn spawn(
+    session: Session,
+    cancel: CancelToken,
+    cancellable: bool,
+) -> Result<UnifiedEngine, String> {
     let (tx, rx) = mpsc::channel();
+    let installed = cancel.clone();
     let thread = std::thread::Builder::new()
         .name("parakeet".into())
         .stack_size(STACK)
-        .spawn(move || serve(session, rx))
+        .spawn(move || serve(session, installed, rx))
         .map_err(|err| err.to_string())?;
     Ok(UnifiedEngine {
         tx,
         thread: Some(thread),
+        cancel,
+        cancellable,
     })
 }
 
-fn serve(mut session: Session, rx: Receiver<Ask>) {
+fn serve(mut session: Session, cancel: CancelToken, rx: Receiver<Ask>) {
     while let Ok(ask) = rx.recv() {
         match ask {
             Ask::Stop => return,
+            Ask::Reset(reply) => {
+                cancel.reset();
+                let _ = reply.send(());
+            }
             Ask::Transcribe(pcm, reply) => {
                 let _ = reply.send(run_offline(&mut session, &pcm));
             }
@@ -183,7 +226,7 @@ fn serve(mut session: Session, rx: Receiver<Ask>) {
                     let _ = reply.send(Ok(String::new()));
                     continue;
                 }
-                if !run_utterance(&mut session, pcm, reply, &rx) {
+                if !run_utterance(&mut session, &cancel, pcm, reply, &rx) {
                     return;
                 }
             }
@@ -193,6 +236,7 @@ fn serve(mut session: Session, rx: Receiver<Ask>) {
 
 fn run_utterance(
     session: &mut Session,
+    cancel: &CancelToken,
     first: Vec<f32>,
     first_reply: Sender<Result<String, String>>,
     rx: &Receiver<Ask>,
@@ -200,25 +244,48 @@ fn run_utterance(
     let mut stream = match session.stream(&RunOptions::default(), &buffered_options()) {
         Ok(stream) => stream,
         Err(err) => {
-            let _ = first_reply.send(Err(show(err)));
+            let _ = first_reply.send(Err(show_run(err)));
             return true;
         }
     };
     let mut utterance = Utterance::new(Native::new(&mut stream));
-    let _ = first_reply.send(utterance.feed(&first));
+    let first_result = utterance.feed(&first);
+    let failed = first_result.is_err();
+    let _ = first_reply.send(first_result);
+    if failed {
+        cancel.reset();
+        return true;
+    }
     loop {
         match rx.recv() {
             Ok(Ask::Feed(pcm, reply)) => {
-                let _ = reply.send(utterance.feed(&pcm));
+                let result = utterance.feed(&pcm);
+                let failed = result.is_err();
+                let _ = reply.send(result);
+                if failed {
+                    cancel.reset();
+                    return true;
+                }
             }
             Ok(Ask::Finish(reply)) => {
-                let _ = reply.send(utterance.finish());
+                let result = utterance.finish();
+                if result.is_err() {
+                    cancel.reset();
+                }
+                let _ = reply.send(result);
                 return true;
             }
             Ok(Ask::Transcribe(pcm, reply)) => {
                 drop(utterance);
                 drop(stream);
                 let _ = reply.send(run_offline(session, &pcm));
+                return true;
+            }
+            Ok(Ask::Reset(reply)) => {
+                cancel.reset();
+                drop(utterance);
+                drop(stream);
+                let _ = reply.send(());
                 return true;
             }
             Ok(Ask::Stop) | Err(_) => return false,
@@ -230,7 +297,9 @@ fn run_offline(session: &mut Session, samples: &[f32]) -> Result<String, String>
     if samples.is_empty() {
         return Ok(String::new());
     }
-    let transcript = session.run(samples, &RunOptions::default()).map_err(show)?;
+    let transcript = session
+        .run(samples, &RunOptions::default())
+        .map_err(show_run)?;
     Ok(transcript.text.trim().to_string())
 }
 
@@ -309,6 +378,13 @@ fn is_q8(path: &Path) -> bool {
 }
 
 fn show(err: impl std::fmt::Display) -> String {
+    err.to_string()
+}
+
+fn show_run(err: transcribe_cpp::Error) -> String {
+    if err.kind() == ErrorKind::Aborted {
+        return "parakeet was cancelled".to_string();
+    }
     err.to_string()
 }
 

@@ -1,3 +1,4 @@
+#[cfg(test)]
 pub(super) struct Fresh {
     pub samples: Vec<f32>,
     pub sent: usize,
@@ -27,6 +28,7 @@ pub(super) fn stable_resample_len(raw_len: usize, from_rate: u32, to_rate: u32) 
     count
 }
 
+#[cfg(test)]
 pub(super) fn fresh_samples(
     raw: &[f32],
     from_rate: u32,
@@ -58,6 +60,98 @@ pub(super) fn fresh_samples(
     }
 }
 
+pub(super) struct Resampler {
+    from_rate: u32,
+    to_rate: u32,
+    pending: Vec<f32>,
+    origin: usize,
+    next_out: usize,
+}
+
+impl Resampler {
+    pub(super) fn new(from_rate: u32, to_rate: u32) -> Self {
+        Self {
+            from_rate,
+            to_rate,
+            pending: Vec::new(),
+            origin: 0,
+            next_out: 0,
+        }
+    }
+
+    pub(super) fn push(&mut self, samples: &[f32], flush: bool) -> Vec<f32> {
+        if self.from_rate == 0 || self.to_rate == 0 {
+            return Vec::new();
+        }
+        self.pending.extend_from_slice(samples);
+        let total = self.origin + self.pending.len();
+        if total == 0 {
+            return Vec::new();
+        }
+        let end = if flush {
+            output_len(total, self.from_rate, self.to_rate)
+        } else {
+            stable_resample_len(total, self.from_rate, self.to_rate)
+        };
+        let mut out = Vec::new();
+        while self.next_out < end {
+            out.push(self.at_output(self.next_out, total));
+            self.next_out += 1;
+        }
+        self.discard();
+        out
+    }
+
+    #[cfg(test)]
+    pub(super) fn buffered(&self) -> usize {
+        self.pending.len()
+    }
+
+    fn at_output(&self, index: usize, total: usize) -> f32 {
+        if self.from_rate == self.to_rate {
+            return self.at(index, total);
+        }
+        let position = index as f64 * f64::from(self.from_rate) / f64::from(self.to_rate);
+        let last = total - 1;
+        let left = (position.floor() as usize).min(last);
+        let right = (left + 1).min(last);
+        let frac = (position - left as f64) as f32;
+        self.at(left, total) * (1.0 - frac) + self.at(right, total) * frac
+    }
+
+    fn at(&self, index: usize, total: usize) -> f32 {
+        let index = index.min(total - 1);
+        self.pending[index - self.origin]
+    }
+
+    fn discard(&mut self) {
+        if self.pending.is_empty() {
+            return;
+        }
+        let position = if self.from_rate == self.to_rate {
+            self.next_out as f64
+        } else {
+            self.next_out as f64 * f64::from(self.from_rate) / f64::from(self.to_rate)
+        };
+        let keep = position.floor() as usize;
+        if keep <= self.origin {
+            return;
+        }
+        let drop = (keep - self.origin).min(self.pending.len());
+        self.pending.drain(..drop);
+        self.origin += drop;
+    }
+}
+
+fn output_len(input_len: usize, from_rate: u32, to_rate: u32) -> usize {
+    if from_rate == to_rate {
+        return input_len;
+    }
+    (input_len as u64)
+        .saturating_mul(u64::from(to_rate))
+        .saturating_div(u64::from(from_rate)) as usize
+}
+
 pub(super) fn resample_linear(samples: &[f32], from_rate: u32, to_rate: u32) -> Vec<f32> {
     if samples.is_empty() || from_rate == 0 || from_rate == to_rate {
         return samples.to_vec();
@@ -77,6 +171,7 @@ pub(super) fn resample_linear(samples: &[f32], from_rate: u32, to_rate: u32) -> 
     out
 }
 
+#[cfg(test)]
 pub(super) fn decode_wav(bytes: &[u8]) -> Result<(u32, Vec<f32>), String> {
     if bytes.len() < 12 || &bytes[0..4] != b"RIFF" || &bytes[8..12] != b"WAVE" {
         return Err("wav must be 16-bit mono pcm".to_string());
@@ -118,6 +213,7 @@ pub(super) fn decode_wav(bytes: &[u8]) -> Result<(u32, Vec<f32>), String> {
     Ok((rate, samples))
 }
 
+#[cfg(test)]
 fn le_u32(bytes: &[u8]) -> u32 {
     u32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]])
 }

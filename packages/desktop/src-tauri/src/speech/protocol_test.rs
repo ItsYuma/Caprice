@@ -37,6 +37,14 @@ fn load_and_text_use_the_worker_wire() {
         serde_json::to_string(&Request::Finish).unwrap(),
         "{\"op\":\"finish\"}"
     );
+    assert_eq!(
+        serde_json::to_string(&Request::Reset).unwrap(),
+        "{\"op\":\"reset\"}"
+    );
+    assert_eq!(
+        serde_json::to_string(&Request::Cancel).unwrap(),
+        "{\"op\":\"cancel\"}"
+    );
     let partial = Response::Partial { text: "hel".into() };
     let wire = serde_json::to_string(&partial).unwrap();
     assert_eq!(wire, "{\"op\":\"partial\",\"text\":\"hel\"}");

@@ -3,8 +3,12 @@ use std::sync::{Arc, Mutex, Weak};
 use std::thread::{self, JoinHandle};
 use std::time::Duration;
 
+use super::capture::{take_fresh, Captured};
+use super::limit::recording_samples;
 use super::lock;
+#[cfg(test)]
 use super::pcm::fresh_samples;
+use super::pcm::Resampler;
 use super::SpeechShared;
 
 const RATE: u32 = 16_000;
@@ -18,7 +22,7 @@ pub(super) struct Feeder {
 impl Feeder {
     pub(super) fn start(
         shared: &Arc<SpeechShared>,
-        samples: Arc<Mutex<Vec<f32>>>,
+        samples: Arc<Mutex<Captured>>,
         rate: u32,
     ) -> Self {
         let stop = Arc::new(AtomicBool::new(false));
@@ -29,6 +33,10 @@ impl Feeder {
             stop,
             done: Some(done),
         }
+    }
+
+    pub(super) fn signal(&self) {
+        self.stop.store(true, Ordering::Release);
     }
 
     pub(super) fn stop(mut self) -> Result<(), String> {
@@ -57,41 +65,45 @@ impl Drop for Feeder {
 
 fn run(
     link: Weak<SpeechShared>,
-    samples: Arc<Mutex<Vec<f32>>>,
+    samples: Arc<Mutex<Captured>>,
     rate: u32,
     stop: Arc<AtomicBool>,
 ) -> Result<(), String> {
-    {
-        let Some(shared) = link.upgrade() else {
-            return Ok(());
-        };
-        lock(&shared.supervisor).ensure()?;
+    let Some(shared) = link.upgrade() else {
+        return Ok(());
+    };
+    if stop.load(Ordering::Acquire) || shared.cancelled.load(Ordering::Acquire) {
+        return Err("listening cancelled".to_string());
     }
-    let mut raw = Vec::new();
-    let mut copied = 0usize;
-    let mut sent = 0usize;
+    {
+        let mut supervisor = lock(&shared.supervisor);
+        supervisor.ensure()?;
+        supervisor.abandon()?;
+    }
+    if stop.load(Ordering::Acquire) || shared.cancelled.load(Ordering::Acquire) {
+        return Err("listening cancelled".to_string());
+    }
+    drop(shared);
+    let mut resampler = Resampler::new(rate, RATE);
+    let max = recording_samples(rate);
+    let mut heard = 0usize;
     loop {
         let Some(shared) = link.upgrade() else {
             return Ok(());
         };
-        let flushing = stop.load(Ordering::Acquire);
-        let fresh = {
-            let guard = lock(&samples);
-            if copied < guard.len() {
-                let fresh = guard[copied..].to_vec();
-                copied = guard.len();
-                fresh
-            } else {
-                Vec::new()
-            }
-        };
-        if fresh.is_empty() && !flushing {
-            drop(shared);
-            thread::sleep(POLL);
-            continue;
+        if shared.cancelled.load(Ordering::Acquire) {
+            return Err("listening cancelled".to_string());
         }
-        raw.extend_from_slice(&fresh);
-        let (chunk, next) = next_feed(&raw, rate, sent, flushing);
+        let flushing = stop.load(Ordering::Acquire);
+        let (fresh, failure) = take_fresh(&samples);
+        if let Some(message) = failure {
+            return Err(message);
+        }
+        heard = heard.saturating_add(fresh.len());
+        if heard > max {
+            return Err("recording is too long".to_string());
+        }
+        let chunk = resampler.push(&fresh, flushing);
         if chunk.is_empty() {
             if flushing {
                 return Ok(());
@@ -100,11 +112,11 @@ fn run(
             thread::sleep(POLL);
             continue;
         }
-        sent = next;
         lock(&shared.supervisor).feed(&chunk)?;
     }
 }
 
+#[cfg(test)]
 fn next_feed(raw: &[f32], rate: u32, sent: usize, flushing: bool) -> (Vec<f32>, usize) {
     let fresh = fresh_samples(raw, rate, RATE, sent, flushing);
     (fresh.samples, fresh.sent)

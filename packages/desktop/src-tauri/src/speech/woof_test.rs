@@ -5,14 +5,17 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use super::super::reply::perform;
 use super::super::test_support::{env_lock, woof_drivers, EnvGuard};
 use super::super::ReplyState;
-use super::{python_program, read_reply, write_text, ChildReply, WoofVoice};
+use super::{python_program, read_reply, speech_reply_cancel, write_text, ChildReply, WoofVoice};
 
 const FAKE: &str = r#"import os
 import sys
+import time
 
 
 class Woof:
     def __init__(self, voice="juno"):
+        if os.environ.get("WOOF_BLOCK_STDIN") == "1":
+            time.sleep(30)
         os.write(1, b"stdout-leak\n")
         sys.stdout.write("stdout-text\n")
         sys.stdout.flush()
@@ -28,6 +31,8 @@ class Woof:
             raise RuntimeError("nope")
         if text == "die":
             os._exit(3)
+        if text == "hang":
+            time.sleep(30)
         return text
 
     @staticmethod
@@ -112,6 +117,20 @@ fn pid_of(row: &[String]) -> u32 {
 }
 
 fn command_line(pid: u32) -> Vec<String> {
+    if cfg!(windows) {
+        let script =
+            format!("(Get-CimInstance Win32_Process -Filter \"ProcessId = {pid}\").CommandLine");
+        let output = std::process::Command::new("powershell")
+            .args(["-NoProfile", "-NonInteractive", "-Command", &script])
+            .output()
+            .expect("command line");
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        return split_command_line(String::from_utf8_lossy(&output.stdout).trim());
+    }
     let bytes = std::fs::read(format!("/proc/{pid}/cmdline")).expect("cmdline");
     bytes
         .split(|byte| *byte == 0)
@@ -120,7 +139,63 @@ fn command_line(pid: u32) -> Vec<String> {
         .collect()
 }
 
+fn split_command_line(input: &str) -> Vec<String> {
+    let mut args = Vec::new();
+    let mut current = String::new();
+    let mut quoted = false;
+    for ch in input.chars() {
+        match ch {
+            '"' => quoted = !quoted,
+            ' ' | '\t' if !quoted => {
+                if !current.is_empty() {
+                    args.push(std::mem::take(&mut current));
+                }
+            }
+            _ => current.push(ch),
+        }
+    }
+    if !current.is_empty() {
+        args.push(current);
+    }
+    args
+}
+
+fn installed_python() -> String {
+    if !cfg!(windows) {
+        return "python3".to_string();
+    }
+    if let Some(path) = std::env::var_os("PATH") {
+        for dir in std::env::split_paths(&path) {
+            let candidate = dir.join("python.exe");
+            let text = candidate.to_string_lossy().to_ascii_lowercase();
+            if text.contains("windowsapps") || !candidate.is_file() {
+                continue;
+            }
+            return candidate.to_string_lossy().into_owned();
+        }
+    }
+    "python".to_string()
+}
+
+fn program_name(arg: &str) -> String {
+    let name = std::path::Path::new(arg)
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or(arg);
+    name.strip_suffix(".exe")
+        .or_else(|| name.strip_suffix(".EXE"))
+        .unwrap_or(name)
+        .to_ascii_lowercase()
+}
+
 fn alive(pid: u32) -> bool {
+    if cfg!(windows) {
+        let output = std::process::Command::new("tasklist")
+            .args(["/FI", &format!("PID eq {pid}"), "/FO", "CSV", "/NH"])
+            .output()
+            .expect("tasklist");
+        return String::from_utf8_lossy(&output.stdout).contains(&format!("\"{pid}\""));
+    }
     std::process::Command::new("kill")
         .args(["-0", &pid.to_string()])
         .stdout(std::process::Stdio::null())
@@ -214,7 +289,8 @@ fn frame(status: u32, body: &[u8]) -> Vec<u8> {
 #[test]
 fn resident_child_stays_warm() {
     let _lock = env_lock();
-    let _python = EnvGuard::set("CAPRICE_PYTHON", None);
+    let python = installed_python();
+    let _python = EnvGuard::set("CAPRICE_PYTHON", Some(&python));
     let home = Home::new();
     let log = LogFile::new();
     let _engine = EnvGuard::set("CAPRICE_TTS_ENGINE", Some("woof"));
@@ -246,7 +322,11 @@ fn resident_child_stays_warm() {
         .filter(|row| row[0] == "say")
         .all(|row| row[2] == pid.to_string()));
     let args = command_line(pid);
-    assert!(args.iter().any(|arg| arg.ends_with("python3")), "{args:?}");
+    assert!(
+        args.iter()
+            .any(|arg| program_name(arg) == program_name(&python)),
+        "{args:?}"
+    );
     assert!(args.iter().any(|arg| arg == "-u"), "{args:?}");
     let script = args
         .iter()
@@ -262,7 +342,8 @@ fn resident_child_stays_warm() {
 #[test]
 fn fault_keeps_the_child_and_a_dead_child_is_replaced() {
     let _lock = env_lock();
-    let _python = EnvGuard::set("CAPRICE_PYTHON", None);
+    let python = installed_python();
+    let _python = EnvGuard::set("CAPRICE_PYTHON", Some(&python));
     let home = Home::new();
     let log = LogFile::new();
     let _engine = EnvGuard::set("CAPRICE_TTS_ENGINE", Some("woof"));
@@ -300,7 +381,8 @@ fn fault_keeps_the_child_and_a_dead_child_is_replaced() {
 #[test]
 fn voice_and_directory_changes_start_a_new_child() {
     let _lock = env_lock();
-    let _python = EnvGuard::set("CAPRICE_PYTHON", None);
+    let python = installed_python();
+    let _python = EnvGuard::set("CAPRICE_PYTHON", Some(&python));
     let first_home = Home::new();
     let second_home = Home::new();
     let log = LogFile::new();
@@ -337,7 +419,8 @@ fn voice_and_directory_changes_start_a_new_child() {
 #[test]
 fn dropping_the_reply_state_kills_the_child() {
     let _lock = env_lock();
-    let _python = EnvGuard::set("CAPRICE_PYTHON", None);
+    let python = installed_python();
+    let _python = EnvGuard::set("CAPRICE_PYTHON", Some(&python));
     let home = Home::new();
     let log = LogFile::new();
     let _engine = EnvGuard::set("CAPRICE_TTS_ENGINE", Some("woof"));
@@ -363,7 +446,8 @@ fn dropping_the_reply_state_kills_the_child() {
 #[test]
 fn missing_directory_and_unknown_voice_do_not_spawn() {
     let _lock = env_lock();
-    let _python = EnvGuard::set("CAPRICE_PYTHON", None);
+    let python = installed_python();
+    let _python = EnvGuard::set("CAPRICE_PYTHON", Some(&python));
     let home = Home::new();
     let log = LogFile::new();
     let _engine = EnvGuard::set("CAPRICE_TTS_ENGINE", Some("woof"));
@@ -391,6 +475,105 @@ fn missing_directory_and_unknown_voice_do_not_spawn() {
     assert!(speak(&state, " \n").unwrap().is_empty());
     assert_eq!(woof_drivers(), before);
     assert!(!std::path::Path::new(&log.path()).exists());
+}
+
+#[test]
+fn a_stuck_reply_is_killed_and_the_next_speak_works() {
+    let _lock = env_lock();
+    let python = installed_python();
+    let _python = EnvGuard::set("CAPRICE_PYTHON", Some(&python));
+    let home = Home::new();
+    let log = LogFile::new();
+    let _engine = EnvGuard::set("CAPRICE_TTS_ENGINE", Some("woof"));
+    let _woof = EnvGuard::set("CAPRICE_TTS_WOOF", Some(&home.path()));
+    let _voice = EnvGuard::set("CAPRICE_TTS_VOICE", Some("juno"));
+    let _deadline = EnvGuard::set("CAPRICE_TTS_DEADLINE_MS", Some("400"));
+    let _logged = EnvGuard::set("WOOF_LOG", Some(&log.path()));
+    let state = ReplyState::new();
+
+    let hung = speak(&state, "hang").unwrap_err();
+    let replaced = speak(&state, "back").expect("back");
+    assert_eq!(hung, "woof timed out");
+    assert_eq!(replaced, b"WAV:back");
+    let rows = read_log(&log.path());
+    let loads = loads(&rows);
+    assert_eq!(loads.len(), 2);
+    assert!(!alive(pid_of(loads[0])));
+}
+
+#[test]
+fn a_child_that_does_not_read_cannot_hold_the_write_past_the_deadline() {
+    let _lock = env_lock();
+    let python = installed_python();
+    let _python = EnvGuard::set("CAPRICE_PYTHON", Some(&python));
+    let home = Home::new();
+    let _engine = EnvGuard::set("CAPRICE_TTS_ENGINE", Some("woof"));
+    let _woof = EnvGuard::set("CAPRICE_TTS_WOOF", Some(&home.path()));
+    let _voice = EnvGuard::set("CAPRICE_TTS_VOICE", Some("juno"));
+    let _deadline = EnvGuard::set("CAPRICE_TTS_DEADLINE_MS", Some("400"));
+    let _block = EnvGuard::set("WOOF_BLOCK_STDIN", Some("1"));
+    let state = ReplyState::new();
+    let started = std::time::Instant::now();
+    let err = speak(&state, &"x".repeat(256 * 1024)).expect_err("blocked write");
+    assert_eq!(err, "woof timed out");
+    assert!(
+        started.elapsed() < std::time::Duration::from_secs(5),
+        "write stayed blocked"
+    );
+}
+
+#[test]
+fn cancel_stops_a_stuck_reply_without_returning_audio() {
+    let _lock = env_lock();
+    let python = installed_python();
+    let _python = EnvGuard::set("CAPRICE_PYTHON", Some(&python));
+    let home = Home::new();
+    let log = LogFile::new();
+    let _engine = EnvGuard::set("CAPRICE_TTS_ENGINE", Some("woof"));
+    let _woof = EnvGuard::set("CAPRICE_TTS_WOOF", Some(&home.path()));
+    let _voice = EnvGuard::set("CAPRICE_TTS_VOICE", Some("juno"));
+    let _deadline = EnvGuard::set("CAPRICE_TTS_DEADLINE_MS", Some("8000"));
+    let _logged = EnvGuard::set("WOOF_LOG", Some(&log.path()));
+    let state = ReplyState::new();
+    speech_reply_cancel(&state).expect("idle");
+
+    let started = std::time::Instant::now();
+    let worker = std::thread::spawn({
+        let state = state.clone();
+        move || speak(&state, "hang")
+    });
+    loop {
+        if started.elapsed() > std::time::Duration::from_secs(5) {
+            panic!("woof did not start");
+        }
+        if std::path::Path::new(&log.path()).is_file() {
+            let rows = read_log(&log.path());
+            if !loads(&rows).is_empty() {
+                break;
+            }
+        }
+        std::thread::sleep(std::time::Duration::from_millis(20));
+    }
+    speech_reply_cancel(&state).expect("cancel");
+    let err = worker.join().expect("join").expect_err("cancelled");
+    assert_eq!(err, "speech reply cancelled");
+    assert!(
+        started.elapsed() < std::time::Duration::from_secs(5),
+        "{err}"
+    );
+    let rows = read_log(&log.path());
+    let first = pid_of(loads(&rows)[0]);
+    assert!(!alive(first));
+    assert_eq!(speak(&state, "back").expect("back"), b"WAV:back");
+}
+
+#[test]
+fn windows_command_lines_keep_quoted_paths() {
+    assert_eq!(
+        split_command_line(r#"C:\Python\python3.exe -u "C:\Temp\driver.py" juno"#),
+        vec![r"C:\Python\python3.exe", "-u", r"C:\Temp\driver.py", "juno",]
+    );
+    assert_eq!(program_name(r"C:\Python\python3.exe"), "python3");
 }
 
 #[test]

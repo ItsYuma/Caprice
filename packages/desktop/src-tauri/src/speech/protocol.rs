@@ -9,6 +9,8 @@ pub(super) enum Request {
     Transcribe { rate: u32, pcm: String },
     Feed { pcm: String },
     Finish,
+    Reset,
+    Cancel,
 }
 
 #[derive(Debug, PartialEq, Serialize, Deserialize)]

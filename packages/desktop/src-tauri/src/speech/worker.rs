@@ -1,17 +1,24 @@
-use std::io::{self, BufRead, Write};
+use std::io::{BufRead, Write};
 use std::path::Path;
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::mpsc::{self, Receiver};
+use std::sync::{Arc, Mutex};
+use std::thread;
 
-use super::bark_stream::Utterance;
+use super::child::{read_capped_line, ReadFail};
 use super::contract::Transcriber;
 use super::engine::{Engine, EngineKind};
+use super::limit::WORKER_REQUEST_BYTES;
+use super::lock;
 use super::protocol::{decode_pcm, Request, Response};
 
 pub const FLAG: &str = "--speech-worker";
 
+const CANCELLED: &str = "listening cancelled";
+
 struct Resident {
     kind: EngineKind,
     engine: Box<Engine>,
-    utterance: Utterance,
 }
 
 enum Slot {
@@ -19,71 +26,220 @@ enum Slot {
     Loaded(Resident),
 }
 
-pub(crate) fn run() -> i32 {
-    let stdin = io::stdin();
-    let stdout = io::stdout();
-    run_on(stdin.lock(), stdout)
+struct CancelControl {
+    token: Mutex<transcribe_cpp::CancelToken>,
+    issued: AtomicU64,
+    abort_through: AtomicU64,
+    enabled: AtomicBool,
 }
 
-pub(super) fn run_on(input: impl BufRead, mut output: impl Write) -> i32 {
+impl CancelControl {
+    fn new() -> Self {
+        Self {
+            token: Mutex::new(transcribe_cpp::CancelToken::new()),
+            issued: AtomicU64::new(0),
+            abort_through: AtomicU64::new(0),
+            enabled: AtomicBool::new(false),
+        }
+    }
+
+    fn issue(&self) -> u64 {
+        self.issued.fetch_add(1, Ordering::SeqCst) + 1
+    }
+
+    fn cancel(&self) {
+        let issued = self.issued.load(Ordering::SeqCst);
+        self.abort_through.fetch_max(issued, Ordering::SeqCst);
+        if self.enabled.load(Ordering::SeqCst) {
+            lock(&self.token).cancel();
+        }
+    }
+
+    fn discarded(&self, id: u64) -> bool {
+        id <= self.abort_through.load(Ordering::SeqCst)
+    }
+
+    fn reset_token(&self) {
+        if self.enabled.load(Ordering::SeqCst) {
+            lock(&self.token).reset();
+        }
+    }
+
+    fn install(&self, token: transcribe_cpp::CancelToken) {
+        *lock(&self.token) = token;
+        self.enabled.store(true, Ordering::SeqCst);
+    }
+
+    fn clear_install(&self) {
+        self.enabled.store(false, Ordering::SeqCst);
+    }
+}
+
+enum Incoming {
+    Request(u64, Request),
+    Invalid(String),
+    Failed(String),
+}
+
+pub(crate) fn run() -> i32 {
+    let control = Arc::new(CancelControl::new());
+    let (tx, rx) = mpsc::channel();
+    let reader_control = Arc::clone(&control);
+    let reader = thread::spawn(move || {
+        let stdin = std::io::stdin();
+        forward(stdin.lock(), tx, reader_control);
+    });
+    let code = compute(rx, std::io::stdout(), control);
+    let _ = reader.join();
+    code
+}
+
+#[cfg(test)]
+pub(super) fn run_on(input: impl BufRead + Send + 'static, output: impl Write) -> i32 {
+    let control = Arc::new(CancelControl::new());
+    let (tx, rx) = mpsc::channel();
+    let reader_control = Arc::clone(&control);
+    let reader = thread::spawn(move || forward(input, tx, reader_control));
+    let code = compute(rx, output, control);
+    let _ = reader.join();
+    code
+}
+
+fn forward(mut input: impl BufRead, tx: mpsc::Sender<Incoming>, control: Arc<CancelControl>) {
+    loop {
+        match read_capped_line(&mut input, WORKER_REQUEST_BYTES) {
+            Ok(None) => return,
+            Ok(Some(line)) => {
+                if line.trim().is_empty() {
+                    continue;
+                }
+                match serde_json::from_str::<Request>(&line) {
+                    Ok(Request::Cancel) => control.cancel(),
+                    Ok(request) => {
+                        let id = control.issue();
+                        if tx.send(Incoming::Request(id, request)).is_err() {
+                            return;
+                        }
+                    }
+                    Err(err) => {
+                        if tx.send(Incoming::Invalid(err.to_string())).is_err() {
+                            return;
+                        }
+                    }
+                }
+            }
+            Err(ReadFail::Closed) => return,
+            Err(ReadFail::TooLarge) => {
+                let _ = tx.send(Incoming::Failed(
+                    "speech worker request is too large".to_string(),
+                ));
+                return;
+            }
+            Err(ReadFail::Message(message)) => {
+                let _ = tx.send(Incoming::Failed(message));
+                return;
+            }
+        }
+    }
+}
+
+fn compute(rx: Receiver<Incoming>, mut output: impl Write, control: Arc<CancelControl>) -> i32 {
     let mut slot = Slot::Empty;
-    for line in input.lines() {
-        let line = match line {
-            Ok(line) => line,
-            Err(err) => {
-                let _ = write_line(
-                    &mut output,
-                    &Response::Error {
-                        message: err.to_string(),
-                    },
-                );
+    while let Ok(incoming) = rx.recv() {
+        match incoming {
+            Incoming::Failed(message) => {
+                let _ = write_line(&mut output, &Response::Error { message });
                 return 1;
             }
-        };
-        if line.trim().is_empty() {
-            continue;
-        }
-        let response = match serde_json::from_str::<Request>(&line) {
-            Ok(request) => dispatch(&mut slot, request),
-            Err(err) => Response::Error {
-                message: err.to_string(),
-            },
-        };
-        if write_line(&mut output, &response).is_err() {
-            return 1;
+            Incoming::Invalid(message) => {
+                if write_line(&mut output, &Response::Error { message }).is_err() {
+                    return 1;
+                }
+            }
+            Incoming::Request(id, request) => {
+                let response = dispatch(&mut slot, request, &control);
+                let response = apply_discard(&mut slot, &control, id, response);
+                let response = apply_discard(&mut slot, &control, id, response);
+                if write_line(&mut output, &response).is_err() {
+                    return 1;
+                }
+            }
         }
     }
     0
 }
 
-fn dispatch(slot: &mut Slot, request: Request) -> Response {
-    match request {
-        Request::Load { model, engine } => load(slot, model, engine),
-        Request::Transcribe { rate, pcm } => transcribe(slot, rate, pcm),
-        Request::Feed { pcm } => feed(slot, pcm),
-        Request::Finish => finish(slot),
+fn apply_discard(
+    slot: &mut Slot,
+    control: &CancelControl,
+    id: u64,
+    response: Response,
+) -> Response {
+    if !control.discarded(id) {
+        return response;
+    }
+    discard_work(slot, control);
+    gate(true, response)
+}
+
+fn discard_work(slot: &mut Slot, control: &CancelControl) {
+    if let Slot::Loaded(resident) = slot {
+        resident.engine.cancel();
+        resident.engine.reset();
+    }
+    control.reset_token();
+}
+
+fn cancelled() -> Response {
+    Response::Error {
+        message: CANCELLED.to_string(),
     }
 }
 
-fn load(slot: &mut Slot, model: String, engine: String) -> Response {
+fn gate(discarded: bool, response: Response) -> Response {
+    if discarded {
+        cancelled()
+    } else {
+        response
+    }
+}
+
+fn dispatch(slot: &mut Slot, request: Request, control: &CancelControl) -> Response {
+    match request {
+        Request::Load { model, engine } => load(slot, model, engine, control),
+        Request::Transcribe { rate, pcm } => transcribe(slot, rate, pcm),
+        Request::Feed { pcm } => feed(slot, pcm),
+        Request::Finish => finish(slot),
+        Request::Reset => reset(slot),
+        Request::Cancel => cancelled(),
+    }
+}
+
+fn load(slot: &mut Slot, model: String, engine: String, control: &CancelControl) -> Response {
     let kind = match EngineKind::parse(&engine) {
         Ok(kind) => kind,
         Err(message) => {
             *slot = Slot::Empty;
+            control.clear_install();
             return Response::Error { message };
         }
     };
     match Engine::load(kind, Path::new(&model)) {
         Ok(engine) => {
+            if let Some(token) = engine.cancellation() {
+                control.install(token);
+            } else {
+                control.clear_install();
+            }
             *slot = Slot::Loaded(Resident {
                 kind,
                 engine: Box::new(engine),
-                utterance: Utterance::new(),
             });
             Response::Ready
         }
         Err(message) => {
             *slot = Slot::Empty;
+            control.clear_install();
             Response::Error { message }
         }
     }
@@ -117,7 +273,10 @@ fn feed(slot: &mut Slot, pcm: String) -> Response {
     let Slot::Loaded(resident) = slot else {
         return not_loaded();
     };
-    stream_feed(&mut resident.engine, &mut resident.utterance, &samples)
+    match resident.engine.feed(&samples) {
+        Ok(text) => Response::Partial { text },
+        Err(message) => Response::Error { message },
+    }
 }
 
 fn finish(slot: &mut Slot) -> Response {
@@ -130,7 +289,18 @@ fn finish(slot: &mut Slot) -> Response {
     let Slot::Loaded(resident) = slot else {
         return not_loaded();
     };
-    stream_finish(&mut resident.engine, &mut resident.utterance)
+    match resident.engine.finish() {
+        Ok(text) => Response::Text { text },
+        Err(message) => Response::Error { message },
+    }
+}
+
+fn reset(slot: &mut Slot) -> Response {
+    let Slot::Loaded(resident) = slot else {
+        return not_loaded();
+    };
+    resident.engine.reset();
+    Response::Ready
 }
 
 fn loaded_kind(slot: &Slot) -> Option<EngineKind> {
@@ -155,38 +325,6 @@ fn finish_response(kind: EngineKind) -> Option<Response> {
         EngineKind::Onnx | EngineKind::Bark => Some(Response::Error {
             message: "speech engine does not stream".to_string(),
         }),
-    }
-}
-
-fn stream_feed(engine: &mut Engine, utterance: &mut Utterance, samples: &[f32]) -> Response {
-    match engine {
-        Engine::BarkStream(engine) => match utterance.push(engine, samples) {
-            Ok(text) => Response::Partial { text },
-            Err(message) => Response::Error { message },
-        },
-        Engine::Parakeet(engine) => match engine.feed(samples) {
-            Ok(text) => Response::Partial { text },
-            Err(message) => Response::Error { message },
-        },
-        Engine::Onnx(_) | Engine::Bark(_) => Response::Partial {
-            text: String::new(),
-        },
-    }
-}
-
-fn stream_finish(engine: &mut Engine, utterance: &mut Utterance) -> Response {
-    match engine {
-        Engine::BarkStream(engine) => match utterance.finish(engine) {
-            Ok(text) => Response::Text { text },
-            Err(message) => Response::Error { message },
-        },
-        Engine::Parakeet(engine) => match engine.finish() {
-            Ok(text) => Response::Text { text },
-            Err(message) => Response::Error { message },
-        },
-        Engine::Onnx(_) | Engine::Bark(_) => Response::Error {
-            message: "speech engine does not stream".to_string(),
-        },
     }
 }
 

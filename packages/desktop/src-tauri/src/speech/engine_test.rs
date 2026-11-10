@@ -1,12 +1,11 @@
 use std::fs;
-use std::path::PathBuf;
 
 use super::{Engine, EngineKind};
 
 #[test]
 fn engine_kind_names_the_loader() {
-    assert_eq!(EngineKind::parse("").unwrap(), EngineKind::BarkStream);
-    assert_eq!(EngineKind::parse("").unwrap().name(), "bark-stream");
+    assert_eq!(EngineKind::parse("").unwrap(), EngineKind::Bark);
+    assert_eq!(EngineKind::parse("").unwrap().name(), "bark");
     assert_eq!(EngineKind::parse(" onnx ").unwrap().name(), "onnx");
     assert_eq!(EngineKind::parse(" bark ").unwrap().name(), "bark");
     assert_eq!(
@@ -34,7 +33,7 @@ fn engine_kind_names_the_loader() {
 
 #[test]
 fn bark_stream_uses_the_bark_checkpoint() {
-    let dir = PathBuf::from(format!("/tmp/caprice-bark-stream-{}", std::process::id()));
+    let dir = std::env::temp_dir().join(format!("caprice-bark-stream-{}", std::process::id()));
     let _ = fs::remove_dir_all(&dir);
     fs::create_dir(&dir).unwrap();
     let missing = match Engine::load(EngineKind::BarkStream, &dir) {

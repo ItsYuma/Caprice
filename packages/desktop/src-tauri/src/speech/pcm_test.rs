@@ -1,4 +1,4 @@
-use super::{decode_wav, fresh_samples, resample_linear, stable_resample_len};
+use super::{decode_wav, fresh_samples, resample_linear, stable_resample_len, Resampler};
 
 fn encode_wav(sample_rate: u32, samples: &[f32]) -> Vec<u8> {
     let data_len = samples.len() * 2;
@@ -150,4 +150,28 @@ fn stable_prefix_matches_after_the_buffer_grows() {
     assert!(fresh_samples(&[], 48_000, 16_000, 0, true)
         .samples
         .is_empty());
+}
+
+#[test]
+fn incremental_resample_keeps_phase_across_chunks() {
+    let rates = [(48_000_u32, 16_000_u32), (8_000, 16_000), (44_100, 16_000)];
+    for (from_rate, to_rate) in rates {
+        let raw: Vec<f32> = (0..from_rate as usize)
+            .map(|index| ((index % 17) as f32) / 17.0)
+            .collect();
+        let mut resampler = Resampler::new(from_rate, to_rate);
+        let mut streamed = Vec::new();
+        for chunk in raw.chunks(997) {
+            streamed.extend(resampler.push(chunk, false));
+            assert!(resampler.buffered() < 2_000);
+        }
+        streamed.extend(resampler.push(&[], true));
+        assert_eq!(streamed, resample_linear(&raw, from_rate, to_rate));
+        assert!(resampler.buffered() <= 2);
+    }
+
+    let mut same = Resampler::new(16_000, 16_000);
+    assert_eq!(same.push(&[0.25, 0.5], false), vec![0.25, 0.5]);
+    assert!(same.push(&[], true).is_empty());
+    assert!(Resampler::new(0, 16_000).push(&[0.1], true).is_empty());
 }

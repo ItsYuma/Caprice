@@ -12,10 +12,8 @@ fn scratch(name: &str) -> PathBuf {
 
 #[test]
 fn a_directory_resolves_one_gguf_and_prefers_q8() {
-    let missing = PathBuf::from(format!(
-        "/tmp/caprice-parakeet-missing-{}",
-        std::process::id()
-    ));
+    let missing =
+        std::env::temp_dir().join(format!("caprice-parakeet-missing-{}", std::process::id()));
     let _ = fs::remove_dir_all(&missing);
     assert_eq!(
         weights_file(&missing).unwrap_err(),

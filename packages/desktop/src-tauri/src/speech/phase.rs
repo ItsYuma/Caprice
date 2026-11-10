@@ -45,30 +45,71 @@ enum Drive<W> {
 
 pub(super) enum Mic<R> {
     Idle,
-    Hot(R),
+    Recording(R),
+    Finishing,
 }
 
 pub(super) enum Press<R> {
     Open,
-    Busy(R),
+    Busy(Mic<R>),
 }
 
-pub(super) enum Released<R> {
-    Captured(R),
+pub(super) enum Stop<R> {
+    Begin(R),
+    Idle,
+}
+
+pub(super) enum Cancelled<R> {
+    Stopped(R),
+    Pending,
     Idle,
 }
 
 pub(super) fn press<R>(mic: Mic<R>) -> Press<R> {
     match mic {
         Mic::Idle => Press::Open,
-        Mic::Hot(recording) => Press::Busy(recording),
+        other => Press::Busy(other),
     }
 }
 
-pub(super) fn release<R>(mic: Mic<R>) -> Released<R> {
+pub(super) fn cease<R>(mic: Mic<R>) -> (Mic<R>, Stop<R>) {
     match mic {
-        Mic::Hot(recording) => Released::Captured(recording),
-        Mic::Idle => Released::Idle,
+        Mic::Recording(recording) => (Mic::Finishing, Stop::Begin(recording)),
+        Mic::Idle => (Mic::Idle, Stop::Idle),
+        Mic::Finishing => (Mic::Finishing, Stop::Idle),
+    }
+}
+
+pub(super) fn settle<R>(mic: Mic<R>) -> Mic<R> {
+    match mic {
+        Mic::Finishing => Mic::Idle,
+        other => other,
+    }
+}
+
+pub(super) struct ListenOutcome {
+    pub transcript: Result<String, String>,
+    pub feed: Result<(), String>,
+    pub microphone: Option<String>,
+    pub cancelled: bool,
+}
+
+pub(super) fn publish(outcome: ListenOutcome) -> Result<String, String> {
+    if outcome.cancelled {
+        return Err("listening cancelled".to_string());
+    }
+    if let Some(message) = outcome.microphone {
+        return Err(message);
+    }
+    outcome.feed?;
+    outcome.transcript
+}
+
+pub(super) fn cancel_mic<R>(mic: Mic<R>) -> (Mic<R>, Cancelled<R>) {
+    match mic {
+        Mic::Recording(recording) => (Mic::Idle, Cancelled::Stopped(recording)),
+        Mic::Finishing => (Mic::Finishing, Cancelled::Pending),
+        Mic::Idle => (Mic::Idle, Cancelled::Idle),
     }
 }
 
