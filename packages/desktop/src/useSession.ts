@@ -11,16 +11,11 @@ import { invoke } from "@tauri-apps/api/core";
 import { useEffect, useRef, useState } from "react";
 import skill from "../../../skills/capri/SKILL.md?raw";
 import hostSkill from "../../../skills/host/SKILL.md?raw";
-import leagueSkill from "../../../skills/league/SKILL.md?raw";
 
 import { openCaprice, type CapriceDeps } from "./compose.ts";
-import { listenAndSay, remarkAndSpeak, type TurnPace } from "./host.ts";
-import { leagueIntegration, shellLeagueBridge } from "./league/league.ts";
-import {
-  abortableSleep,
-  followMatch,
-  liveMatchPath,
-} from "./league/watchLeague.ts";
+import { listenAndSay, type TurnPace } from "./host.ts";
+import type { Integration } from "./integration.ts";
+import { openMatchRemarks } from "./matchRemarks.ts";
 import {
   paceListener,
   paceText,
@@ -29,6 +24,7 @@ import {
   type PaceNote,
 } from "./pace.ts";
 import { stopPlayback } from "./playback.ts";
+import { playing } from "./playing.ts";
 import { postModel } from "./postChat.ts";
 import {
   bindCancel,
@@ -90,17 +86,21 @@ export function useSession(): CapriceSession {
     };
 
     let turnAbort: AbortController | undefined;
-    const remarks = { current: new AbortController() };
     let phaseNow: TalkPhase = "idle";
     const watch = new AbortController();
+    const games = playing(voice.inShell);
 
-    const stopRemark = () => {
-      remarks.current.abort();
-      remarks.current = new AbortController();
-    };
+    const remarks = openMatchRemarks(
+      {
+        session: () => session.current,
+        speaker: voice.speaker,
+        idle: () => phaseNow === "idle",
+      },
+      watch.signal,
+    );
 
     const stopTurn = () => {
-      stopRemark();
+      remarks.stop();
       session.current?.cancel();
       listener.cancel();
       turnAbort?.abort();
@@ -179,7 +179,7 @@ export function useSession(): CapriceSession {
     const hold: TalkHold = {
       phase: () => next.phase(),
       press() {
-        stopRemark();
+        remarks.stop();
         session.current?.cancel();
         next.press();
       },
@@ -194,7 +194,9 @@ export function useSession(): CapriceSession {
 
     const unbindCancel = bindCancel(window, stopTurn);
 
-    void openCaprice(browserDeps(rememberedEvents())).then(
+    void openCaprice(
+      browserDeps(rememberedEvents(), voice.inShell, games.integrations),
+    ).then(
       (opened) => {
         if (!alive) {
           if (opened.status === "ready") {
@@ -214,38 +216,7 @@ export function useSession(): CapriceSession {
         startup.current = "ready";
         session.current = opened.session;
         setProblem("");
-
-        if (!voice.inShell) {
-          return;
-        }
-
-        void followMatch(
-          () => invoke<string>("league_live", { path: liveMatchPath }),
-          (cue, fallback) => {
-            const current = session.current;
-
-            if (current === undefined || phaseNow !== "idle") {
-              return Promise.resolve(false);
-            }
-
-            const signal = remarks.current.signal;
-
-            if (signal.aborted) {
-              return Promise.resolve(false);
-            }
-
-            return remarkAndSpeak(
-              current,
-              voice.speaker,
-              cue,
-              fallback,
-              signal,
-            );
-          },
-          watch.signal,
-          abortableSleep,
-          () => Date.now(),
-        );
+        remarks.follow(games.remarks);
       },
       () => {
         if (!alive) {
@@ -307,9 +278,11 @@ function remember(current: Session) {
   return writeThread(store, current.events());
 }
 
-function browserDeps(remembered: readonly TranscriptEvent[]): CapriceDeps {
-  const inShell = "__TAURI_INTERNALS__" in window;
-
+function browserDeps(
+  remembered: readonly TranscriptEvent[],
+  inShell: boolean,
+  integrations: readonly Integration[],
+): CapriceDeps {
   return {
     voiceSkill: skill,
     hostSkill,
@@ -319,16 +292,7 @@ function browserDeps(remembered: readonly TranscriptEvent[]): CapriceDeps {
     postShell: postModel,
     postBrowser: postJson,
     remembered,
-    integrations: [
-      leagueIntegration(
-        leagueSkill,
-        shellLeagueBridge(
-          inShell,
-          (path) => invoke<string>("league_live", { path }),
-          (request) => invoke<string>("league_lcu", { request }),
-        ),
-      ),
-    ],
+    integrations,
   };
 }
 

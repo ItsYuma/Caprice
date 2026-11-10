@@ -9,7 +9,7 @@ flowchart TB
   subgraph desktop [Desktop composition]
     page[React presence and input]
     turn[Listen, assistant, speak]
-    integrations[Game integrations: tools and instructions]
+    integrations[Game integrations: tools, instructions, followers]
   end
   subgraph core [Core]
     session[Assistant turn state machine]
@@ -64,6 +64,8 @@ The frameless window opens at the top left of the work area. Hold Alt+Space, Ctr
 
 ## Games
 
-An integration owns its tools and game instructions. Application composition selects integrations; core has no League dependency. Rust's League facade delegates credential discovery, request parsing, and HTTP exchange to separate modules. Blocking process discovery runs off the async executor. Credentials remain in Rust, requests stay on loopback, redirects and retries are disabled, and response reads are bounded.
+An integration owns its tools and game instructions. The playing list selects integrations; core has no game dependency. A game that speaks on its own also supplies a follower. One gate runs every follower. It speaks only while the host is idle, and holding talk or Escape cancels the line. The reply uses `notice`, so tools are refused and the saved thread stays unchanged.
 
-Live commentary is a desktop poll of that same live-client read. One new fact becomes a host line. The reply is spoken with tools refused, and it is not written into the saved thread. A host turn cancels it.
+Rust's League facade delegates credential discovery, request parsing, and HTTP exchange to separate modules. Blocking process discovery runs off the async executor. Credentials remain in Rust, requests stay on loopback, redirects and retries are disabled, and response reads are bounded.
+
+Live commentary is League's follower: a poll of that same live-client read. One new fact becomes a host line.

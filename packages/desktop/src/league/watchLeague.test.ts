@@ -1,6 +1,20 @@
 import { expect, test } from "bun:test";
 
-import { followMatch, remarkGapMs } from "./watchLeague.ts";
+import { followLeague, followMatch, remarkGapMs } from "./watchLeague.ts";
+
+test("followLeague polls until the window stops", async () => {
+  const stop = new AbortController();
+  let polls = 0;
+
+  await followLeague(async () => {
+    polls += 1;
+    stop.abort();
+
+    return "";
+  })(async () => false, stop.signal);
+
+  expect(polls).toBe(1);
+});
 
 test("a second fact waits out the gap", async () => {
   let clock = 0;

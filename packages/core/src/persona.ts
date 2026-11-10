@@ -7,7 +7,7 @@ export function contractText(skill: string): string {
 }
 
 export function playText(skill: string): string {
-  return section(skill, "## Play", "league skill is missing Play");
+  return section(skill, "## Play", "skill is missing Play");
 }
 
 function section(skill: string, heading: string, missing: string): string {

@@ -53,5 +53,5 @@ test("contractText rejects a skill with no contract", () => {
 });
 
 test("playText rejects a skill with no play section", () => {
-  expect(() => playText("# League\nnope")).toThrow("Play");
+  expect(() => playText("# League\nnope")).toThrow("skill is missing Play");
 });

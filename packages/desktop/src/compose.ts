@@ -14,11 +14,7 @@ import {
 } from "@caprice/core";
 
 import { loadModelSource } from "./endpoint.ts";
-
-export type Integration = {
-  instructions: string;
-  tools: readonly Tool[];
-};
+import type { Integration } from "./integration.ts";
 
 export type CapriceDeps = {
   voiceSkill: string;

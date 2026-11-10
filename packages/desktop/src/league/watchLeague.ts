@@ -1,3 +1,4 @@
+import type { RemarkFollow } from "../matchRemarks.ts";
 import { parseLiveMatch, type LiveMatch } from "./liveMatch.ts";
 import { remarkCue, remarkFallback } from "./matchLine.ts";
 import {
@@ -19,6 +20,11 @@ export const matchMissLimit = 4;
 export const remarkGapMs = 12_000;
 
 export const urgentGapMs = 4_000;
+
+export function followLeague(read: () => Promise<string>): RemarkFollow {
+  return (speak, signal) =>
+    followMatch(read, speak, signal, abortableSleep, () => Date.now());
+}
 
 export async function followMatch(
   read: () => Promise<string>,
