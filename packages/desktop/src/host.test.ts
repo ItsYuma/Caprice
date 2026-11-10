@@ -9,7 +9,12 @@ import {
 import { recordingSpeaker, scriptedListener } from "@caprice/voice";
 import { expect, test } from "bun:test";
 
-import { listenAndSay, sayAndSpeak, type TurnPace } from "./host.ts";
+import {
+  listenAndSay,
+  remarkAndSpeak,
+  sayAndSpeak,
+  type TurnPace,
+} from "./host.ts";
 import type { PaceMark, PaceNote } from "./pace.ts";
 
 const signal = new AbortController().signal;
@@ -134,6 +139,110 @@ test("listenAndSay drops a blank transcript before say", async () => {
   expect(line).toBeUndefined();
   expect(session.events()).toEqual([]);
   expect(recording.spoken()).toEqual([]);
+});
+
+test("a remark speaks the model line and strips a tag", async () => {
+  const session = openSession(
+    "p",
+    {
+      async complete() {
+        return ok({
+          kind: "message",
+          text: "[excited] Draven again. Stop that. And another sentence.",
+        });
+      },
+    },
+    [],
+  );
+
+  const recording = recordingSpeaker();
+
+  const spoken = await remarkAndSpeak(
+    session,
+    recording.speaker,
+    "Live match. You died to Draven.",
+    "You died. Rude.",
+    signal,
+  );
+
+  expect(spoken).toBe(true);
+  expect(recording.spoken()).toEqual(["Draven again. Stop that."]);
+  expect(session.events()).toEqual([]);
+});
+
+test("a tool call during a remark speaks the fallback", async () => {
+  let runs = 0;
+
+  const session = openSession(
+    "p",
+    {
+      async complete() {
+        return ok({
+          kind: "calls",
+          calls: [{ id: "1", name: "note", input: "hi" }],
+        });
+      },
+    },
+    [
+      noteTool(async () => {
+        runs += 1;
+
+        return "ran";
+      }),
+    ],
+  );
+
+  const recording = recordingSpeaker();
+
+  const spoken = await remarkAndSpeak(
+    session,
+    recording.speaker,
+    "Live match. You died.",
+    "You died. Rude.",
+    signal,
+  );
+
+  expect(spoken).toBe(true);
+  expect(runs).toBe(0);
+  expect(recording.spoken()).toEqual(["You died. Rude."]);
+});
+
+test("a cancelled remark stays quiet", async () => {
+  let release = () => {};
+
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+
+  const session = openSession(
+    "p",
+    {
+      async complete() {
+        await gate;
+
+        return ok({ kind: "message", text: "late" });
+      },
+    },
+    [],
+  );
+
+  const recording = recordingSpeaker();
+  const controller = new AbortController();
+
+  const pending = remarkAndSpeak(
+    session,
+    recording.speaker,
+    "Live match.",
+    "Match is up. Entertain me.",
+    controller.signal,
+  );
+
+  controller.abort();
+  release();
+
+  expect(await pending).toBe(false);
+  expect(recording.spoken()).toEqual([]);
+  expect(session.events()).toEqual([]);
 });
 
 function noteTool(run: (input: string) => Promise<string>): Tool {

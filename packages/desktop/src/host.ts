@@ -81,6 +81,104 @@ export async function listenAndSay(
   return sayAndSpeak(session, speaker, text, signal, pace);
 }
 
+export async function remarkAndSpeak(
+  session: Session,
+  speaker: Speaker,
+  cue: string,
+  fallback: string,
+  signal: AbortSignal,
+): Promise<boolean> {
+  if (signal.aborted) {
+    session.cancel();
+
+    return false;
+  }
+
+  const onAbort = () => {
+    session.cancel();
+  };
+
+  signal.addEventListener("abort", onAbort, { once: true });
+
+  try {
+    const line = await session.notice(cue);
+
+    if (signal.aborted) {
+      return false;
+    }
+
+    const modelLine = line.ok ? spokenWords(line.value.text) : "";
+
+    const say =
+      modelLine.length > 0 ? modelLine : fallbackWords(line, fallback);
+
+    if (say.length === 0) {
+      return false;
+    }
+
+    try {
+      await speaker.speak(say, signal);
+    } catch {
+      return true;
+    }
+
+    return true;
+  } finally {
+    signal.removeEventListener("abort", onAbort);
+  }
+}
+
+function fallbackWords(line: Result<AssistantEvent>, fallback: string): string {
+  if (line.ok) {
+    return spokenWords(fallback);
+  }
+
+  if (
+    line.error.message === "cancelled" ||
+    line.error.message === "still working"
+  ) {
+    return "";
+  }
+
+  return spokenWords(fallback);
+}
+
+function spokenWords(text: string): string {
+  const stripped = text
+    .replace(/\[[a-zA-Z ]{1,24}\]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  if (stripped.length === 0) {
+    return "";
+  }
+
+  const sentences = stripped.match(/[^.!?]+[.!?]+|[^.!?]+$/g);
+
+  if (sentences === null) {
+    return "";
+  }
+
+  let line = "";
+  const count = Math.min(2, sentences.length);
+
+  for (let index = 0; index < count; index += 1) {
+    const sentence = sentences[index]?.trim() ?? "";
+
+    if (sentence.length === 0) {
+      continue;
+    }
+
+    line = line.length === 0 ? sentence : `${line} ${sentence}`;
+  }
+
+  if (line.length > 240) {
+    return line.slice(0, 240).trim();
+  }
+
+  return line;
+}
+
 async function timed<T>(
   pace: TurnPace | undefined,
   name: PaceName,

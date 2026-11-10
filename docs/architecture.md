@@ -65,3 +65,5 @@ The frameless window opens at the top left of the work area. Hold Alt+Space, Ctr
 ## Games
 
 An integration owns its tools and game instructions. Application composition selects integrations; core has no League dependency. Rust's League facade delegates credential discovery, request parsing, and HTTP exchange to separate modules. Blocking process discovery runs off the async executor. Credentials remain in Rust, requests stay on loopback, redirects and retries are disabled, and response reads are bounded.
+
+Live commentary is a desktop poll of that same live-client read. One new fact becomes a host line. The reply is spoken with tools refused, and it is not written into the saved thread. A host turn cancels it.

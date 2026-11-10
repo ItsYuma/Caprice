@@ -93,14 +93,14 @@ Anti-slop is vendored from `dmmulroy/anti-slop` at `13909c9e07590f5a85d93c627122
 
 The window talks to whatever chat endpoint the environment names. Set both of these before `bun run dev`. There is no default host, port, or model name.
 
-| Variable                | What it is                                                         |
-| ----------------------- | ------------------------------------------------------------------ |
-| `CAPRICE_MODEL_URL`         | Full URL that accepts a JSON body `{ model, messages }`                                      |
-| `CAPRICE_MODEL`             | Model name sent in that body                                                                 |
-| `CAPRICE_MODEL_API_KEY`     | Optional bearer token. Omit it when the endpoint does not need one                           |
-| `CAPRICE_MODEL_PROTOCOL`    | Empty or `text` uses the whole-reply call convention. `native` sends registered function tools |
-| `CAPRICE_MODEL_RUNTIME`     | Empty or `external` uses the endpoint as it is. `ollama` starts a configured child           |
-| `CAPRICE_MODEL_EXECUTABLE`  | Program for `ollama`. Required only for that runtime                                         |
+| Variable                   | What it is                                                                                     |
+| -------------------------- | ---------------------------------------------------------------------------------------------- |
+| `CAPRICE_MODEL_URL`        | Full URL that accepts a JSON body `{ model, messages }`                                        |
+| `CAPRICE_MODEL`            | Model name sent in that body                                                                   |
+| `CAPRICE_MODEL_API_KEY`    | Optional bearer token. Omit it when the endpoint does not need one                             |
+| `CAPRICE_MODEL_PROTOCOL`   | Empty or `text` uses the whole-reply call convention. `native` sends registered function tools |
+| `CAPRICE_MODEL_RUNTIME`    | Empty or `external` uses the endpoint as it is. `ollama` starts a configured child             |
+| `CAPRICE_MODEL_EXECUTABLE` | Program for `ollama`. Required only for that runtime                                           |
 
 Inside the Tauri window, Rust reads the URL, the model name, and the bearer token. The page calls `model_complete` with the chat body and a request id, and `model_cancel` with that id. `model_endpoint` returns the model, the protocol, and the timeout. A managed runtime stops only a child it started and does not download model files. A page opened outside Tauri gets the same names through Vite and posts with `postJson`, so that endpoint must allow the page origin. `postJson` is the browser fetch for a JSON body. It sets `content-type: application/json`, and `Authorization: Bearer` when the key is non-empty. Spoken audio outside the window uses `postSpeech`, because the response is bytes. `packages/core` does not read the environment and does not open files.
 
@@ -134,4 +134,6 @@ The ONNX variant loads the int8 weights through `transcribe-rs`. The Bark varian
 
 `league_live` and `league_lcu` are the League tools. The model sees `skills/host` from `## Contract` and `skills/league` from `## Play`, after the voice. A call is the whole reply, and the session runs it. The result is a host line the model answers from. A turn stops after four calls.
 
-Rust calls `127.0.0.1` only. `league_live` is the Live Client Data API on port 2999. `league_lcu` is the League client API. The port and the token come from the running client: its command line, then its lockfile. On Windows the command line is `LeagueClientUx.exe`, and the lockfile is also checked under the usual Riot folders on `C` through `H`. `CAPRICE_LEAGUE_LOCKFILE` is that lockfile when the install is somewhere else. The token is not shown to the model. Outside the Tauri window both tools say the league client is not available in this window.
+Rust calls `127.0.0.1` only. `league_live` is the Live Client Data API on port 2999. `league_lcu` is the League client API. The port and the token come from the running client: its command line, then its lockfile. On Windows the command line is `LeagueClientUx.exe`, and the lockfile is also checked under the usual Riot folders on `C` through `H`. `CAPRICE_LEAGUE_LOCKFILE` is that lockfile when the install is somewhere else. The token is not shown to the model. Outside the Tauri window both tools say the league client is not available in this window. While the Tauri window is open, the desktop polls `/liveclientdata/allgamedata` through that same command. A new fact — the match starting or ending, your kill, death, or multikill, an objective, or one note that someone is fed or feeding — is spoken as one line, with tools refused. She does not talk over the host. The line is not saved in the thread. A dropped client is silence. On Summoner's Rift, a dragon, the voidgrubs, the herald, or baron before they can exist is ignored. Opening a match that is already past a minute and a half does not replay it.
+
+While the Tauri window is open, the desktop polls `/liveclientdata/allgamedata` through that same command. A new fact — the match starting or ending, your kill, death, or multikill, an objective, or one note that someone is fed or feeding — is spoken as one line, with tools refused. She does not talk over the host. The line is not saved in the thread. A dropped client is silence. On Summoner's Rift, a dragon, the voidgrubs, the herald, or baron before they can exist is ignored. Opening a match that is already past a minute and a half does not replay it.

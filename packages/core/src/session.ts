@@ -42,6 +42,7 @@ export type Session = {
   events: () => readonly TranscriptEvent[];
   tools: () => readonly Tool[];
   say: (hostText: string) => Promise<Result<AssistantEvent>>;
+  notice: (hostText: string) => Promise<Result<AssistantEvent>>;
   cancel: () => void;
 };
 
@@ -99,7 +100,15 @@ export function openSession(
       }
 
       const acceptTools = used < toolTurnLimit;
-      const reply = await completeTurn(mine, signal, request, acceptTools);
+
+      const reply = await completeTurn(
+        mine,
+        signal,
+        request,
+        acceptTools,
+        toolSpecs(offered),
+        events,
+      );
 
       if (!running(mine)) {
         return fail("cancelled");
@@ -158,6 +167,8 @@ export function openSession(
     signal: AbortSignal,
     request: string,
     acceptTools: boolean,
+    tools: readonly ToolSpec[],
+    seen: readonly TranscriptEvent[],
   ): Promise<Result<ModelOutput>> {
     if (!running(mine)) {
       return fail("cancelled");
@@ -168,8 +179,8 @@ export function openSession(
         model.complete({
           persona,
           request,
-          events: copyEvents(events),
-          tools: toolSpecs(offered),
+          events: copyEvents(seen),
+          tools,
           acceptTools,
           signal,
         }),
@@ -285,6 +296,50 @@ export function openSession(
         generation: turn.generation,
         controller: turn.controller,
       };
+    },
+    async notice(hostText: string) {
+      if (turn.status !== "idle") {
+        return fail("still working");
+      }
+
+      generation += 1;
+      const mine = generation;
+      const controller = new AbortController();
+
+      turn = { status: "running", generation: mine, controller };
+
+      const request = clipText(hostText, threadSizeLimit);
+      const seen = copyEvents(events);
+      seen.push({ kind: "user", text: request });
+
+      try {
+        const reply = await completeTurn(
+          mine,
+          controller.signal,
+          request,
+          true,
+          [],
+          seen,
+        );
+
+        if (!running(mine)) {
+          return fail("cancelled");
+        }
+
+        if (!reply.ok) {
+          return reply;
+        }
+
+        if (reply.value.kind !== "message") {
+          return fail("the model called a tool");
+        }
+
+        return ok({ kind: "assistant", text: reply.value.text });
+      } finally {
+        if (current(mine)) {
+          turn = { status: "idle" };
+        }
+      }
     },
     async say(hostText: string) {
       if (turn.status !== "idle") {

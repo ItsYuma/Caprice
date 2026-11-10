@@ -7,7 +7,7 @@ import {
   type ToolContext,
 } from "@caprice/core";
 
-import type { Integration } from "./compose.ts";
+import type { Integration } from "../compose.ts";
 
 export type LeagueBridge = {
   live: (path: string) => Promise<string>;

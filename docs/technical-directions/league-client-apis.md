@@ -12,4 +12,6 @@ Transport accepts only a parsed loopback URL with an explicit port. The local ce
 
 `league.rs` is the facade. `games/discover.rs`, `games/request.rs`, and `games/transport.rs` own discovery, parsing, and HTTP respectively. These modules currently implement League; other integrations get their own implementation instead of extending a universal request tool.
 
+The desktop also polls `/liveclientdata/allgamedata` while the window is open. That poll is the live commentary feed. It uses this command and these limits. The model does not choose the poll, and the payload is not kept as a tool result.
+
 Set aside: the Riot developer API, starting League, bundled champion tables, a plugin loader, and an agent framework solely for these calls. Typed tool events allow native function calling without tying game transport to a model provider.

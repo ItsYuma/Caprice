@@ -14,8 +14,13 @@ import hostSkill from "../../../skills/host/SKILL.md?raw";
 import leagueSkill from "../../../skills/league/SKILL.md?raw";
 
 import { openCaprice, type CapriceDeps } from "./compose.ts";
-import { listenAndSay, type TurnPace } from "./host.ts";
-import { leagueIntegration, shellLeagueBridge } from "./league.ts";
+import { listenAndSay, remarkAndSpeak, type TurnPace } from "./host.ts";
+import { leagueIntegration, shellLeagueBridge } from "./league/league.ts";
+import {
+  abortableSleep,
+  followMatch,
+  liveMatchPath,
+} from "./league/watchLeague.ts";
 import {
   paceListener,
   paceText,
@@ -85,8 +90,17 @@ export function useSession(): CapriceSession {
     };
 
     let turnAbort: AbortController | undefined;
+    const remarks = { current: new AbortController() };
+    let phaseNow: TalkPhase = "idle";
+    const watch = new AbortController();
+
+    const stopRemark = () => {
+      remarks.current.abort();
+      remarks.current = new AbortController();
+    };
 
     const stopTurn = () => {
+      stopRemark();
       session.current?.cancel();
       listener.cancel();
       turnAbort?.abort();
@@ -156,12 +170,27 @@ export function useSession(): CapriceSession {
 
         setProblem("");
       },
-      setTalkPhase,
+      (phase) => {
+        phaseNow = phase;
+        setTalkPhase(phase);
+      },
     );
 
-    setHold(next);
+    const hold: TalkHold = {
+      phase: () => next.phase(),
+      press() {
+        stopRemark();
+        session.current?.cancel();
+        next.press();
+      },
+      release() {
+        next.release();
+      },
+    };
 
-    const unbind = bindTalk(next, window);
+    setHold(hold);
+
+    const unbind = bindTalk(hold, window);
 
     const unbindCancel = bindCancel(window, stopTurn);
 
@@ -185,6 +214,38 @@ export function useSession(): CapriceSession {
         startup.current = "ready";
         session.current = opened.session;
         setProblem("");
+
+        if (!voice.inShell) {
+          return;
+        }
+
+        void followMatch(
+          () => invoke<string>("league_live", { path: liveMatchPath }),
+          (cue, fallback) => {
+            const current = session.current;
+
+            if (current === undefined || phaseNow !== "idle") {
+              return Promise.resolve(false);
+            }
+
+            const signal = remarks.current.signal;
+
+            if (signal.aborted) {
+              return Promise.resolve(false);
+            }
+
+            return remarkAndSpeak(
+              current,
+              voice.speaker,
+              cue,
+              fallback,
+              signal,
+            );
+          },
+          watch.signal,
+          abortableSleep,
+          () => Date.now(),
+        );
       },
       () => {
         if (!alive) {
@@ -198,6 +259,7 @@ export function useSession(): CapriceSession {
 
     return () => {
       alive = false;
+      watch.abort();
       unbind();
       unbindCancel();
       stopTurn();

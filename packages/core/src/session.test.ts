@@ -735,6 +735,78 @@ function toolIds(messages: readonly WireMessage[]): string[] {
   return ids;
 }
 
+test("notice answers without tools and leaves the thread alone", async () => {
+  let tools = -1;
+  let acceptTools = false;
+  let last = "";
+
+  const session = openSession(
+    "p",
+    {
+      async complete(turn) {
+        const latest = turn.events.at(-1);
+
+        tools = turn.tools.length;
+        acceptTools = turn.acceptTools;
+        last = latest?.kind === "user" ? latest.text : "";
+
+        return ok({ kind: "message", text: "Draven again." });
+      },
+    },
+    [note(async () => "ran")],
+    [
+      { kind: "user", text: "earlier" },
+      { kind: "assistant", text: "yo" },
+    ],
+  );
+
+  const line = await session.notice("Live match. You died to Draven.");
+
+  expect(tools).toBe(0);
+  expect(acceptTools).toBe(true);
+  expect(last).toBe("Live match. You died to Draven.");
+  expect(line).toEqual({
+    ok: true,
+    value: { kind: "assistant", text: "Draven again." },
+  });
+  expect(session.events()).toEqual([
+    { kind: "user", text: "earlier" },
+    { kind: "assistant", text: "yo" },
+  ]);
+});
+
+test("notice drops a tool call and does not run it", async () => {
+  let runs = 0;
+
+  const session = openSession(
+    "p",
+    {
+      async complete() {
+        return ok(calls("note", "hi"));
+      },
+    },
+    [
+      note(async () => {
+        runs += 1;
+
+        return "ran";
+      }),
+    ],
+  );
+
+  const line = await session.notice("Live match. You died.");
+
+  expect(runs).toBe(0);
+  expect(line.ok).toBe(false);
+
+  if (line.ok) {
+    return;
+  }
+
+  expect(line.error.message).toBe("the model called a tool");
+  expect(session.events()).toEqual([]);
+});
+
 function note(run: (input: string) => Promise<string>): Tool {
   return {
     name: "note",

@@ -2,7 +2,7 @@ import { modelDeadlineMs, ok, type ModelEnv, type Tool } from "@caprice/core";
 import { expect, test } from "bun:test";
 
 import { openCaprice, type CapriceDeps, type Integration } from "./compose.ts";
-import { leagueIntegration } from "./league.ts";
+import { leagueIntegration } from "./league/league.ts";
 
 const env: ModelEnv = {
   CAPRICE_MODEL_URL: undefined,
