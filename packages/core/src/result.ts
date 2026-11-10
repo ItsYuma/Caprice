@@ -6,8 +6,20 @@ export function ok<T>(value: T): Result<T> {
   return { ok: true, value };
 }
 
-function err<T>(error: Error): Result<T> {
-  return { ok: false, error };
+export function fail<T>(message: string): Result<T> {
+  return { ok: false, error: new Error(message) };
+}
+
+export function fromCause<T>(cause: unknown, fallback: string): Result<T> {
+  if (cause instanceof Error && cause.message.length > 0) {
+    return { ok: false, error: cause };
+  }
+
+  if (isString(cause) && cause.length > 0) {
+    return fail(cause);
+  }
+
+  return fail(fallback);
 }
 
 export async function tryCatch<T>(
@@ -20,14 +32,14 @@ export async function tryCatch<T>(
     return ok(value);
   } catch (caught) {
     if (isError(caught)) {
-      return err(caught);
+      return { ok: false, error: caught };
     }
 
     if (isString(caught)) {
-      return err(new Error(caught));
+      return fail(caught);
     }
 
-    return err(new Error(fallback));
+    return fail(fallback);
   }
 }
 

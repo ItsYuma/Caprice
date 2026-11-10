@@ -3,6 +3,10 @@ export type ToolCall = {
   input: string;
 };
 
+export type TextReply =
+  | { kind: "prose"; text: string }
+  | { kind: "call"; name: string; input: string };
+
 export function readToolCall(text: string): ToolCall | undefined {
   const lines = text
     .replaceAll("\r\n", "\n")
@@ -33,6 +37,33 @@ export function readToolCall(text: string): ToolCall | undefined {
   }
 
   return { name, input };
+}
+
+export function interpretTextReply(
+  text: string,
+  offered: readonly string[],
+): TextReply {
+  const call = readToolCall(text);
+
+  if (call === undefined) {
+    return { kind: "prose", text };
+  }
+
+  if (hasName(offered, call.name) || call.name.includes("_")) {
+    return { kind: "call", name: call.name, input: call.input };
+  }
+
+  return { kind: "prose", text };
+}
+
+function hasName(offered: readonly string[], name: string): boolean {
+  for (const tool of offered) {
+    if (tool === name) {
+      return true;
+    }
+  }
+
+  return false;
 }
 
 function isToolName(name: string): boolean {

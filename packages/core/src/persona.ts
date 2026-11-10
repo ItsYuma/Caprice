@@ -6,6 +6,10 @@ export function contractText(skill: string): string {
   return section(skill, "## Contract", "host skill is missing Contract");
 }
 
+export function playText(skill: string): string {
+  return section(skill, "## Play", "league skill is missing Play");
+}
+
 function section(skill: string, heading: string, missing: string): string {
   const start = skill.indexOf(heading);
 

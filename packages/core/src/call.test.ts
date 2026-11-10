@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 
-import { readToolCall } from "./call.ts";
+import { interpretTextReply, readToolCall } from "./call.ts";
 
 test("a call is the whole reply", () => {
   expect(readToolCall("call league_live /liveclientdata/allgamedata")).toEqual({
@@ -19,6 +19,34 @@ test("a call is the whole reply", () => {
   expect(readToolCall("call league_live")).toEqual({
     name: "league_live",
     input: "",
+  });
+});
+
+test("plain call me later stays prose unless that name is a tool", () => {
+  expect(interpretTextReply("call me later", ["league_live"])).toEqual({
+    kind: "prose",
+    text: "call me later",
+  });
+  expect(
+    interpretTextReply("call missing_tool later", ["league_live"]),
+  ).toEqual({
+    kind: "call",
+    name: "missing_tool",
+    input: "later",
+  });
+  expect(
+    interpretTextReply("call league_live /liveclientdata/allgamedata", [
+      "league_live",
+    ]),
+  ).toEqual({
+    kind: "call",
+    name: "league_live",
+    input: "/liveclientdata/allgamedata",
+  });
+  expect(interpretTextReply("call note hi", ["note"])).toEqual({
+    kind: "call",
+    name: "note",
+    input: "hi",
   });
 });
 

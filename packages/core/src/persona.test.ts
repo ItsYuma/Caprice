@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 
-import { contractText, personaText } from "./persona.ts";
+import { contractText, personaText, playText } from "./persona.ts";
 
 const skill = await Bun.file(
   new URL("../../../skills/capri/SKILL.md", import.meta.url),
@@ -8,6 +8,10 @@ const skill = await Bun.file(
 
 const host = await Bun.file(
   new URL("../../../skills/host/SKILL.md", import.meta.url),
+).text();
+
+const league = await Bun.file(
+  new URL("../../../skills/league/SKILL.md", import.meta.url),
 ).text();
 
 test("capri skill feeds the model from the voice heading", () => {
@@ -25,13 +29,19 @@ test("host skill tells her how to call a tool", () => {
 
   expect(contract.startsWith("## Contract")).toBe(true);
   expect(contract).toContain("four calls");
-  expect(contract).toContain("league_live");
-  expect(contract).toContain("league_lcu");
-  expect(contract).toContain("/liveclientdata/allgamedata");
-  expect(contract).toContain("/lol-matchmaking/v1/ready-check/accept");
-  expect(contract).toContain("/lol-champ-select/v1/session/actions/");
-  expect(contract).toContain("/complete");
-  expect(contract).toContain("champion-summary.json");
+  expect(contract).toContain("call <name> <input>");
+  expect(contract).toContain("Do not ask them to confirm");
+  expect(contract).not.toContain("league_live");
+  expect(contract).not.toContain("/liveclientdata/allgamedata");
+});
+
+test("league skill tells her the request is enough", () => {
+  const play = playText(league);
+
+  expect(play.startsWith("## Play")).toBe(true);
+  expect(play).toContain("Pick Yasuo");
+  expect(play).toContain("Do not ask them to confirm");
+  expect(play).toContain("champion-summary.json");
 });
 
 test("personaText rejects a skill with no voice", () => {
@@ -40,4 +50,8 @@ test("personaText rejects a skill with no voice", () => {
 
 test("contractText rejects a skill with no contract", () => {
   expect(() => contractText("# Host\nnope")).toThrow("Contract");
+});
+
+test("playText rejects a skill with no play section", () => {
+  expect(() => playText("# League\nnope")).toThrow("Play");
 });
