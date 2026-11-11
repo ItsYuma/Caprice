@@ -1,9 +1,10 @@
 import { modelDeadlineMs, ok, type ModelEnv, type Tool } from "@caprice/core";
+import type { GameTool } from "@caprice/games";
+import { leaguePlugin, type LeagueBridge } from "@caprice/league";
 import { expect, test } from "bun:test";
 
 import { openCaprice, type CapriceDeps } from "./compose.ts";
 import type { Integration } from "./integration.ts";
-import { leagueIntegration } from "./league/league.ts";
 
 const env: ModelEnv = {
   CAPRICE_MODEL_URL: undefined,
@@ -41,6 +42,7 @@ test("the shell posts the body and does not receive a key", async () => {
       },
       integrations: [
         leagueIntegration("## Play\nPick Yasuo when they ask.", {
+          inShell: true,
           async live() {
             return "stats";
           },
@@ -128,6 +130,42 @@ function deps(patch: Partial<CapriceDeps> = {}): CapriceDeps {
     remembered: [],
     integrations: [],
     ...patch,
+  };
+}
+
+function leagueIntegration(skill: string, bridge: LeagueBridge): Integration {
+  const plugin = leaguePlugin(skill, bridge, {
+    enabled: true,
+    detected: false,
+  });
+
+  if (plugin === undefined) {
+    throw new Error("league was not loaded");
+  }
+
+  const tools: Tool[] = [];
+
+  for (const tool of plugin.tools) {
+    tools.push(adaptTool(tool));
+  }
+
+  return {
+    instructions: plugin.instructions,
+    tools,
+  };
+}
+
+function adaptTool(tool: GameTool): Tool {
+  return {
+    name: tool.name,
+    description: tool.description,
+    kind: tool.kind,
+    parse(input) {
+      return tool.parse(input);
+    },
+    async run(input, context) {
+      return tool.run(input, context);
+    },
   };
 }
 

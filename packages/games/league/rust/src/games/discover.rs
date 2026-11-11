@@ -9,10 +9,10 @@ use base64::Engine;
 const COMMAND_LINE_WAIT: Duration = Duration::from_millis(3500);
 const COMMAND_LINE_BYTES: usize = 256 * 1024;
 
-pub(in crate::league) struct Lockfile {
-    pub(in crate::league) port: u16,
-    pub(in crate::league) token: String,
-    pub(in crate::league) protocol: String,
+pub(crate) struct Lockfile {
+    pub(crate) port: u16,
+    pub(crate) token: String,
+    pub(crate) protocol: String,
 }
 
 struct Locate {
@@ -57,7 +57,7 @@ enum Capture {
     Done(Option<Vec<u8>>),
 }
 
-pub(in crate::league) fn current_credentials() -> Result<Lockfile, String> {
+pub(crate) fn current_credentials() -> Result<Lockfile, String> {
     let program_data = std::env::var("ProgramData").unwrap_or_default();
     let home = std::env::var("HOME")
         .or_else(|_| std::env::var("USERPROFILE"))
@@ -645,7 +645,7 @@ fn parse_port(text: &str) -> Option<u16> {
     }
 }
 
-pub(in crate::league) fn basic_token(token: &str) -> String {
+pub(crate) fn basic_token(token: &str) -> String {
     STANDARD.encode(format!("riot:{token}"))
 }
 

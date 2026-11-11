@@ -1,10 +1,10 @@
-pub(in crate::league) struct LcuCall {
-    pub(in crate::league) method: String,
-    pub(in crate::league) path: String,
-    pub(in crate::league) body: Option<String>,
+pub(crate) struct LcuCall {
+    pub(crate) method: String,
+    pub(crate) path: String,
+    pub(crate) body: Option<String>,
 }
 
-pub(in crate::league) fn parse_live(input: &str) -> Result<String, String> {
+pub(crate) fn parse_live(input: &str) -> Result<String, String> {
     let text = input.trim();
     let path = if text.is_empty() {
         "/liveclientdata/allgamedata"
@@ -22,7 +22,7 @@ pub(in crate::league) fn parse_live(input: &str) -> Result<String, String> {
     local_path(path)
 }
 
-pub(in crate::league) fn parse_lcu(input: &str) -> Result<LcuCall, String> {
+pub(crate) fn parse_lcu(input: &str) -> Result<LcuCall, String> {
     let mut lines = input.trim().lines();
     let first = lines.next().unwrap_or("").trim();
     let mut parts = first.split_whitespace();

@@ -1,4 +1,5 @@
-import type { RemarkFollow } from "../matchRemarks.ts";
+import type { GameFollow } from "@caprice/games";
+
 import { parseLiveMatch, type LiveMatch } from "./liveMatch.ts";
 import { remarkCue, remarkFallback } from "./matchLine.ts";
 import {
@@ -21,7 +22,7 @@ export const remarkGapMs = 12_000;
 
 export const urgentGapMs = 4_000;
 
-export function followLeague(read: () => Promise<string>): RemarkFollow {
+export function followLeague(read: () => Promise<string>): GameFollow {
   return (speak, signal) =>
     followMatch(read, speak, signal, abortableSleep, () => Date.now());
 }

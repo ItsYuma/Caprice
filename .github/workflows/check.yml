@@ -53,3 +53,12 @@ jobs:
       - name: cargo clippy
         working-directory: packages/desktop/src-tauri
         run: cargo clippy -- -D warnings
+      - name: league cargo fmt
+        working-directory: packages/games/league/rust
+        run: cargo fmt --check
+      - name: league cargo test
+        working-directory: packages/games/league/rust
+        run: cargo test
+      - name: league cargo clippy
+        working-directory: packages/games/league/rust
+        run: cargo clippy -- -D warnings

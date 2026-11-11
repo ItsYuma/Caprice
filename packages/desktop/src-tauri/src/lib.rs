@@ -74,6 +74,7 @@ pub fn run() {
             speech::speak::speech_credit,
             league::league_live,
             league::league_lcu,
+            league::games_detected,
             talk_keys::talk_arm,
             talk_keys::talk_disarm,
         ])

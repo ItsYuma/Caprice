@@ -11,6 +11,14 @@ fn basic(token: &str) -> String {
     super::super::discover::basic_token(token)
 }
 
+fn block_on<T>(future: impl std::future::Future<Output = T>) -> T {
+    tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .expect("runtime")
+        .block_on(future)
+}
+
 #[test]
 fn an_encoded_riot_id_stays_on_loopback_without_a_fragment() {
     let url = loopback_url(
@@ -58,7 +66,7 @@ fn exchange_posts_to_loopback_and_keeps_the_body() {
 
     let client = insecure_local().expect("client");
     let url = loopback_url("http", port, "/lol-gameflow/v1/gameflow-phase").expect("url");
-    let text = tauri::async_runtime::block_on(exchange(
+    let text = block_on(exchange(
         &client,
         &url,
         "GET",
@@ -95,7 +103,7 @@ fn exchange_sends_a_json_body_and_reports_status() {
 
     let client = insecure_local().expect("client");
     let url = loopback_url("http", port, "/lol-lobby/v2/lobby/matchmaking/search").expect("url");
-    let err = tauri::async_runtime::block_on(exchange(
+    let err = block_on(exchange(
         &client,
         &url,
         "POST",
@@ -128,7 +136,7 @@ fn an_empty_success_body_becomes_an_empty_object() {
 
     let client = insecure_local().expect("client");
     let url = loopback_url("http", port, "/lol-matchmaking/v1/ready-check/accept").expect("url");
-    let text = tauri::async_runtime::block_on(exchange(
+    let text = block_on(exchange(
         &client,
         &url,
         "POST",
@@ -153,8 +161,7 @@ fn exchange_refuses_a_url_that_leaves_the_machine() {
     ] {
         let url = reqwest::Url::parse(raw).expect("parse");
         let err =
-            tauri::async_runtime::block_on(exchange(&client, &url, "GET", "", None, "live client"))
-                .expect_err("remote");
+            block_on(exchange(&client, &url, "GET", "", None, "live client")).expect_err("remote");
         assert_eq!(err, "league url is not local", "{raw}");
     }
 }
@@ -181,8 +188,7 @@ fn a_redirect_is_not_followed() {
     let client = insecure_local().expect("client");
     let url = loopback_url("http", port, "/liveclientdata/allgamedata").expect("url");
     let err =
-        tauri::async_runtime::block_on(exchange(&client, &url, "GET", "", None, "live client"))
-            .expect_err("redirect");
+        block_on(exchange(&client, &url, "GET", "", None, "live client")).expect_err("redirect");
     handle.join().expect("server");
     assert_eq!(err, "live client returned 302: moved");
     assert_eq!(hits.load(Ordering::SeqCst), 1);
@@ -239,7 +245,7 @@ fn exchange_stops_before_the_rest_of_a_long_body() {
     let client_thread = std::thread::spawn(move || {
         let client = local_client(Duration::from_secs(2)).expect("client");
         let url = loopback_url("http", port, "/liveclientdata/allgamedata").expect("url");
-        let result = tauri::async_runtime::block_on(exchange_limited(
+        let result = block_on(exchange_limited(
             &client,
             &url,
             "GET",
@@ -280,8 +286,7 @@ fn a_silent_server_times_out_as_not_running() {
     let url = loopback_url("http", port, "/liveclientdata/allgamedata").expect("url");
     let started = Instant::now();
     let err =
-        tauri::async_runtime::block_on(exchange(&client, &url, "GET", "", None, "live client"))
-            .expect_err("timeout");
+        block_on(exchange(&client, &url, "GET", "", None, "live client")).expect_err("timeout");
     assert_eq!(err, "live client is not running");
     assert!(started.elapsed() < Duration::from_secs(1));
     server.join().expect("server");
@@ -295,8 +300,7 @@ fn a_closed_port_is_not_running() {
     let client = insecure_local().expect("client");
     let url = loopback_url("http", port, "/liveclientdata/allgamedata").expect("url");
     let err =
-        tauri::async_runtime::block_on(exchange(&client, &url, "GET", "", None, "live client"))
-            .expect_err("closed");
+        block_on(exchange(&client, &url, "GET", "", None, "live client")).expect_err("closed");
     assert_eq!(err, "live client is not running");
 }
 
@@ -332,7 +336,7 @@ fn a_dropped_post_is_not_sent_again() {
     });
     let client = insecure_local().expect("client");
     let url = loopback_url("http", port, "/lol-matchmaking/v1/ready-check/accept").expect("url");
-    let err = tauri::async_runtime::block_on(exchange(
+    let err = block_on(exchange(
         &client,
         &url,
         "POST",

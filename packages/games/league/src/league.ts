@@ -1,17 +1,23 @@
-import {
-  fail,
-  ok,
-  playText,
-  type Result,
-  type Tool,
-  type ToolContext,
-} from "@caprice/core";
+import type {
+  GameContext,
+  GameFollow,
+  GamePlugin,
+  GameTool,
+} from "@caprice/games";
 
-import type { Integration } from "../integration.ts";
+import { openLobby } from "./lobbyDesk.ts";
+import { fail, ok, type Result } from "./result.ts";
+import { followLeague, liveMatchPath } from "./watchLeague.ts";
 
 export type LeagueBridge = {
+  inShell: boolean;
   live: (path: string) => Promise<string>;
   lcu: (request: string) => Promise<string>;
+};
+
+export type LeagueOptions = {
+  enabled: boolean;
+  detected: boolean;
 };
 
 const unavailable = "league client is not available in this window";
@@ -41,6 +47,7 @@ export function shellLeagueBridge(
 ): LeagueBridge {
   if (!inShell) {
     return {
+      inShell: false,
       async live() {
         throw new Error(unavailable);
       },
@@ -50,20 +57,46 @@ export function shellLeagueBridge(
     };
   }
 
-  return { live, lcu };
+  return { inShell: true, live, lcu };
 }
 
-export function leagueIntegration(
+export function leaguePlugin(
   skill: string,
   bridge: LeagueBridge,
-): Integration {
+  options: LeagueOptions,
+): GamePlugin | undefined {
+  if (!options.enabled && !options.detected) {
+    return undefined;
+  }
+
+  const tools = leagueTools(bridge);
+
+  const follows: GameFollow[] = [
+    followLeague(() => bridge.live(liveMatchPath)),
+  ];
+
+  if (!bridge.inShell) {
+    return {
+      id: "league",
+      instructions: skill,
+      tools,
+      follows,
+    };
+  }
+
+  const lobby = openLobby((request) => bridge.lcu(request));
+  follows.push(lobby.follow);
+
   return {
-    instructions: playText(skill),
-    tools: leagueTools(bridge),
+    id: "league",
+    instructions: skill,
+    tools,
+    follows,
+    hear: (text) => lobby.hear(text),
   };
 }
 
-export function leagueTools(bridge: LeagueBridge): Tool[] {
+export function leagueTools(bridge: LeagueBridge): GameTool[] {
   return [
     {
       name: "league_live",
@@ -90,7 +123,7 @@ export function leagueTools(bridge: LeagueBridge): Tool[] {
   ];
 }
 
-function throwIfCancelled(context: ToolContext): void {
+function throwIfCancelled(context: GameContext): void {
   if (context.signal.aborted) {
     throw new Error("cancelled");
   }

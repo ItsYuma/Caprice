@@ -313,6 +313,7 @@ name = "caprice-desktop"
 version = "0.1.0"
 dependencies = [
  "base64 0.23.1",
+ "caprice-league",
  "cpal",
  "handy-keys",
  "ort",
@@ -326,6 +327,16 @@ dependencies = [
  "transcribe-cpp",
  "transcribe-rs",
  "windows 0.62.2",
+]
+
+[[package]]
+name = "caprice-league"
+version = "0.1.0"
+dependencies = [
+ "base64 0.23.1",
+ "reqwest",
+ "serde_json",
+ "tokio",
 ]
 
 [[package]]

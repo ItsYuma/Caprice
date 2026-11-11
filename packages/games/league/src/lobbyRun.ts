@@ -1,5 +1,4 @@
-import { tryCatch } from "@caprice/core";
-
+import { tryCatch } from "./result.ts";
 import {
   actionKindPresent,
   findChampion,

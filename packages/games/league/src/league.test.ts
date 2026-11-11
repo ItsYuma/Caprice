@@ -1,9 +1,9 @@
-import type { ToolContext } from "@caprice/core";
+import type { GameContext } from "@caprice/games";
 import { expect, test } from "bun:test";
 
-import { leagueTools, shellLeagueBridge } from "./league.ts";
+import { leaguePlugin, leagueTools, shellLeagueBridge } from "./league.ts";
 
-const context: ToolContext = {
+const context: GameContext = {
   request: "pick Yasuo",
   signal: new AbortController().signal,
 };
@@ -12,6 +12,7 @@ test("league tools pass a valid input through", async () => {
   const seen: string[] = [];
 
   const tools = leagueTools({
+    inShell: true,
     async live(path) {
       seen.push(path);
 
@@ -49,6 +50,7 @@ test("league tools pass a valid input through", async () => {
 
 test("league input is checked before the client is called", () => {
   const tools = leagueTools({
+    inShell: true,
     async live() {
       return "no";
     },
@@ -86,6 +88,7 @@ test("league input is checked before the client is called", () => {
 
 test("a live query keeps raw spaces and unicode", () => {
   const tools = leagueTools({
+    inShell: true,
     async live() {
       return "stats";
     },
@@ -108,6 +111,7 @@ test("a league transport failure is not a successful result", async () => {
   const seen: string[] = [];
 
   const tools = leagueTools({
+    inShell: true,
     async live(path) {
       seen.push(path);
 
@@ -144,4 +148,58 @@ test("outside the window the league client is unavailable", async () => {
   await expect(
     tools[1]?.run("GET /lol-summoner/v1/current-summoner", context),
   ).rejects.toThrow("league client is not available in this window");
+});
+
+test("league stays unloaded until it is enabled or detected", () => {
+  const bridge = shellLeagueBridge(
+    true,
+    async () => "stats",
+    async () => "phase",
+  );
+
+  expect(
+    leaguePlugin("## Play\nHi.", bridge, {
+      enabled: false,
+      detected: false,
+    }),
+  ).toBeUndefined();
+});
+
+test("the shell plugin keeps the play text and the lobby follower", () => {
+  const bridge = shellLeagueBridge(
+    true,
+    async () => "stats",
+    async () => "phase",
+  );
+
+  const plugin = leaguePlugin("## Play\nHi.", bridge, {
+    enabled: true,
+    detected: false,
+  });
+
+  expect(plugin?.id).toBe("league");
+  expect(plugin?.instructions).toBe("## Play\nHi.");
+  expect(plugin?.tools.map((tool) => tool.name)).toEqual([
+    "league_live",
+    "league_lcu",
+  ]);
+  expect(plugin?.follows).toHaveLength(2);
+  expect(plugin?.hear).toBeDefined();
+});
+
+test("outside the shell the plugin keeps the live follower and skips the lobby", () => {
+  const bridge = shellLeagueBridge(
+    false,
+    async () => "no",
+    async () => "no",
+  );
+
+  const plugin = leaguePlugin("## Play\nHi.", bridge, {
+    enabled: false,
+    detected: true,
+  });
+
+  expect(plugin?.instructions).toBe("## Play\nHi.");
+  expect(plugin?.follows).toHaveLength(1);
+  expect(plugin?.hear).toBeUndefined();
 });

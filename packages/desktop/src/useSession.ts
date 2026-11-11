@@ -14,12 +14,13 @@ import skill from "../../../skills/capri/SKILL.md?raw";
 import hostSkill from "../../../skills/host/SKILL.md?raw";
 
 import { openCaprice, type CapriceDeps } from "./compose.ts";
+import { readDetectedIds, readEnabledGames } from "./gameFlags.ts";
 import { listenAndSay, type TurnPace } from "./host.ts";
 import type { Integration } from "./integration.ts";
 import { openMatchRemarks } from "./matchRemarks.ts";
 import { paceListener, type PaceName, type PaceNote } from "./pace.ts";
 import { stopPlayback } from "./playback.ts";
-import { playing } from "./playing.ts";
+import { playing, type Playing } from "./playing.ts";
 import { bindShellTalk } from "./shellTalk.ts";
 import { postModel } from "./postChat.ts";
 import {
@@ -78,17 +79,27 @@ export function useSession(): CapriceSession {
     let turnAbort: AbortController | undefined;
     let phaseNow: TalkPhase = "idle";
     const watch = new AbortController();
-    const games = playing(voice.inShell);
-    const lobby = games.lobby;
+    let followers = new AbortController();
 
-    const remarks = openMatchRemarks(
-      {
-        session: () => session.current,
-        speaker: voice.speaker,
-        idle: () => phaseNow === "idle",
-      },
-      watch.signal,
-    );
+    let games = playing({
+      inShell: voice.inShell,
+      enabled: [],
+      detected: [],
+    });
+
+    let generation = 0;
+
+    watch.signal.addEventListener("abort", () => {
+      followers.abort();
+    });
+
+    const host = {
+      session: () => session.current,
+      speaker: voice.speaker,
+      idle: () => phaseNow === "idle",
+    };
+
+    let remarks = openMatchRemarks(host, followers.signal);
 
     const stopTurn = () => {
       remarks.stop();
@@ -126,7 +137,15 @@ export function useSession(): CapriceSession {
               ...pace,
               note: note.current,
             },
-            lobby === undefined ? undefined : (text) => lobby.hear(text),
+            async (text) => {
+              const hear = games.hear;
+
+              if (hear === undefined) {
+                return undefined;
+              }
+
+              return hear(text);
+            },
           ),
           "the model request failed",
         );
@@ -228,11 +247,21 @@ export function useSession(): CapriceSession {
 
     const unbindCancel = bindCancel(window, stopTurn);
 
-    void openCaprice(
-      browserDeps(rememberedEvents(), voice.inShell, games.integrations),
-    ).then(
-      (opened) => {
-        if (!alive) {
+    const publish = async (loaded: Playing) => {
+      const mine = generation + 1;
+      generation = mine;
+
+      const remembered =
+        session.current === undefined
+          ? rememberedEvents()
+          : session.current.events().slice();
+
+      try {
+        const opened = await openCaprice(
+          browserDeps(remembered, voice.inShell, loaded.integrations),
+        );
+
+        if (!alive || mine !== generation) {
           if (opened.status === "ready") {
             opened.session.cancel();
           }
@@ -247,24 +276,91 @@ export function useSession(): CapriceSession {
           return;
         }
 
+        const previous = session.current;
+        games = loaded;
+        followers.abort();
+        followers = new AbortController();
+        remarks = openMatchRemarks(host, followers.signal);
         startup.current = "ready";
         session.current = opened.session;
+        previous?.cancel();
         setProblem("");
-        remarks.follow(games.remarks);
-      },
-      () => {
+        remarks.follow(loaded.remarks);
+      } catch (caught) {
+        if (!alive || mine !== generation) {
+          return;
+        }
+
+        startup.current = "misconfigured";
+        setProblem(caughtMessage(caught));
+      }
+    };
+
+    const loadPlaying = async () => {
+      try {
+        if (!voice.inShell) {
+          await publish(
+            playing({
+              inShell: false,
+              enabled: [],
+              detected: [],
+            }),
+          );
+
+          return;
+        }
+
+        const [detectedRaw, enabledRaw] = await Promise.all([
+          invokeText("games_detected"),
+          invokeText("settings_get"),
+        ]);
+
+        if (!alive) {
+          return;
+        }
+
+        await publish(
+          playing({
+            inShell: true,
+            detected: readDetectedIds(detectedRaw),
+            enabled: readEnabledGames(enabledRaw),
+          }),
+        );
+      } catch (caught) {
         if (!alive) {
           return;
         }
 
         startup.current = "misconfigured";
-        setProblem("the model is not configured");
-      },
-    );
+        setProblem(caughtMessage(caught));
+      }
+    };
+
+    void loadPlaying();
+
+    let stopSettings = () => {};
+
+    if (voice.inShell) {
+      void tryCatch(
+        listen("caprice-settings", () => {
+          void loadPlaying();
+        }).then((unlisten) => {
+          if (!alive) {
+            unlisten();
+
+            return;
+          }
+
+          stopSettings = unlisten;
+        }),
+        "settings did not load",
+      );
+    }
 
     return () => {
       alive = false;
       watch.abort();
+      stopSettings();
       stopShell();
       unbind();
       unbindCancel();
@@ -279,6 +375,28 @@ export function useSession(): CapriceSession {
     hint: voice.hint,
     step,
   };
+}
+
+function caughtMessage(cause: unknown): string {
+  if (isError(cause) && cause.message.length > 0) {
+    return cause.message;
+  }
+
+  return "the model is not configured";
+}
+
+function isError(value: unknown): value is Error {
+  return value instanceof Error;
+}
+
+async function invokeText(command: string): Promise<string> {
+  const result = await tryCatch(invoke<string>(command), "missing");
+
+  if (!result.ok) {
+    return "";
+  }
+
+  return result.value;
 }
 
 function readClock(): number {

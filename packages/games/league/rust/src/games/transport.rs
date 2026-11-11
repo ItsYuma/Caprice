@@ -3,7 +3,7 @@ use std::time::Duration;
 const BODY_LIMIT: usize = 4_000_000;
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(4);
 
-pub(in crate::league) fn insecure_local() -> Result<reqwest::Client, String> {
+pub(crate) fn insecure_local() -> Result<reqwest::Client, String> {
     local_client(REQUEST_TIMEOUT)
 }
 
@@ -20,11 +20,7 @@ fn local_client(timeout: Duration) -> Result<reqwest::Client, String> {
         .map_err(|err| err.to_string())
 }
 
-pub(in crate::league) fn loopback_url(
-    protocol: &str,
-    port: u16,
-    path: &str,
-) -> Result<reqwest::Url, String> {
+pub(crate) fn loopback_url(protocol: &str, port: u16, path: &str) -> Result<reqwest::Url, String> {
     if protocol != "https" && protocol != "http" {
         return Err("league client protocol is not http".to_string());
     }
@@ -47,7 +43,7 @@ pub(in crate::league) fn loopback_url(
     Ok(url)
 }
 
-pub(in crate::league) async fn exchange(
+pub(crate) async fn exchange(
     client: &reqwest::Client,
     url: &reqwest::Url,
     method: &str,

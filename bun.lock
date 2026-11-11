@@ -19,6 +19,8 @@
       "version": "0.0.0",
       "dependencies": {
         "@caprice/core": "workspace:*",
+        "@caprice/games": "workspace:*",
+        "@caprice/league": "workspace:*",
         "@caprice/voice": "workspace:*",
         "@tauri-apps/api": "^2",
         "react": "^19.3.1",
@@ -33,6 +35,17 @@
         "vite": "^8.0.16",
       },
     },
+    "packages/games/contract": {
+      "name": "@caprice/games",
+      "version": "0.0.0",
+    },
+    "packages/games/league": {
+      "name": "@caprice/league",
+      "version": "0.0.0",
+      "dependencies": {
+        "@caprice/games": "workspace:*",
+      },
+    },
     "packages/voice": {
       "name": "@caprice/voice",
       "version": "0.0.0",
@@ -42,6 +55,10 @@
     "@caprice/core": ["@caprice/core@workspace:packages/core"],
 
     "@caprice/desktop": ["@caprice/desktop@workspace:packages/desktop"],
+
+    "@caprice/games": ["@caprice/games@workspace:packages/games/contract"],
+
+    "@caprice/league": ["@caprice/league@workspace:packages/games/league"],
 
     "@caprice/voice": ["@caprice/voice@workspace:packages/voice"],
 

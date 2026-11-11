@@ -1,6 +1,6 @@
-import { tryCatch } from "@caprice/core";
+import type { GameFollow } from "@caprice/games";
 
-import type { RemarkFollow } from "../matchRemarks.ts";
+import { tryCatch } from "./result.ts";
 import { abortableSleep } from "./watchLeague.ts";
 import { parseLobby } from "./lobbyAsk.ts";
 import { lobbyCue, lobbyFallback } from "./lobbyCue.ts";
@@ -24,7 +24,7 @@ export type LobbyRoute = {
 
 export type LobbyDesk = {
   hear: (text: string) => Promise<LobbyRoute | undefined>;
-  follow: RemarkFollow;
+  follow: GameFollow;
 };
 
 const cancelPath = "DELETE /lol-lobby/v2/lobby/matchmaking/search";
@@ -105,7 +105,7 @@ export function openLobby(
     return route;
   };
 
-  const follow: RemarkFollow = async (speak, signal) => {
+  const follow: GameFollow = async (speak, signal) => {
     while (!signal.aborted) {
       const fact = await exclusive(async () => {
         if (unsaid !== undefined) {
