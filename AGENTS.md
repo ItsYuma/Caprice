@@ -22,6 +22,8 @@ From the repo root, with Bun 1.4.4:
 | `cargo test`                  | Rust shell tests, from `packages/desktop/src-tauri`    |
 | `cargo fmt`                   | Format the shell                                       |
 | `cargo clippy -- -D warnings` | Rust lints for the shell. Warnings fail                |
+| `cargo test`                  | League client, from `packages/games/league/rust`       |
+| `cargo clippy -- -D warnings` | League client, from `packages/games/league/rust`       |
 
 The shell needs Rust 1.99.1. Tauri 2.12 does not build on 1.83. `rust-toolchain.toml` at the repo root selects it. The Tauri CLI asks `rustc` from `packages/desktop`, and rustup only walks parent directories.
 
@@ -37,7 +39,9 @@ Stable Bun 1.4.4 has `bun test`, `bun fmt`, and `bun check`. `bun lint` in that 
 | ---------------------------- | ----------------------------------------------------- |
 | `packages/core`              | `Session`, `Model`, `Tool`, `Result`, persona slicing |
 | `packages/voice`             | `Listener` and `Speaker`                              |
-| `packages/desktop`           | React window, `sayAndSpeak`, and the League client    |
+| `packages/desktop`           | React window, `sayAndSpeak`, and which games load     |
+| `packages/games/contract`    | The game plugin interface                             |
+| `packages/games/league`      | League tools, followers, and the client crate         |
 | `scripts/`                   | `install.sh`, `install.ps1`, and the dev launcher     |
 | `skills/`                    | Text the local model reads                            |
 | `docs/architecture.md`       | The diagram and the dependency rule                   |
@@ -46,7 +50,7 @@ Stable Bun 1.4.4 has `bun test`, `bun fmt`, and `bun check`. `bun lint` in that 
 | `MILESTONES.md`              | What is next                                          |
 | `tools/oxlint/anti-slop`     | Vendored upstream. Do not restyle it                  |
 
-`packages/core` does not import `packages/voice` or `packages/desktop`. `packages/voice` does not import the other packages. The shell is the only composer. Rust opens the window. It does not own the session.
+`packages/core` does not import `packages/voice`, `packages/desktop`, or `packages/games`. `packages/voice` does not import the other packages. A game package does not import core, voice, or desktop. The shell is the only composer. Rust opens the window. It does not own the session.
 
 ## Files
 
@@ -133,8 +137,8 @@ The ONNX variant loads the int8 weights through `transcribe-rs`. The Bark varian
 
 ## League
 
-`league_live` and `league_lcu` are the League tools. The model sees `skills/host` from `## Contract` and `skills/league` from `## Play`, after the voice. A call is the whole reply, and the session runs it. The result is a host line the model answers from. A turn stops after four calls.
+`league_live` and `league_lcu` are the League tools. They live in `@caprice/league`. Desktop loads that package when `games_detected` finds the client or `enabledGames` includes `league`. The model sees `skills/host` from `## Contract` and `skills/league` from `## Play`, after the voice. A call is the whole reply, and the session runs it. The result is a host line the model answers from. A turn stops after four calls.
 
-Rust calls `127.0.0.1` only. `league_live` is the Live Client Data API on port 2999. `league_lcu` is the League client API. The port and the token come from the running client: its command line, then its lockfile. On Windows the command line is `LeagueClientUx.exe`, and the lockfile is also checked under the usual Riot folders on `C` through `H`. `CAPRICE_LEAGUE_LOCKFILE` is that lockfile when the install is somewhere else. The token is not shown to the model. Outside the Tauri window both tools say the league client is not available in this window. While the Tauri window is open, the desktop polls `/liveclientdata/allgamedata` through that same command. A new fact — the match starting or ending, your kill, death, or multikill, an objective, or one note that someone is fed or feeding — is spoken as one line that mocks or cheers, with tools refused. She does not talk over the host. The line is not saved in the thread. A dropped client is silence. On Summoner's Rift, a dragon, the voidgrubs, the herald, or baron before they can exist is ignored. Opening a match that is already past a minute and a half does not replay it.
+Rust calls `127.0.0.1` only, from `packages/games/league/rust`. `league_live` is the Live Client Data API on port 2999. `league_lcu` is the League client API. The port and the token come from the running client: its command line, then its lockfile. On Windows the command line is `LeagueClientUx.exe`, and the lockfile is also checked under the usual Riot folders on `C` through `H`. `CAPRICE_LEAGUE_LOCKFILE` is that lockfile when the install is somewhere else. The token is not shown to the model. Outside the Tauri window the tools are not loaded. While the Tauri window is open, the league package polls `/liveclientdata/allgamedata` through that same command. A new fact — the match starting or ending, your kill, death, or multikill, an objective, or one note that someone is fed or feeding — is spoken as one line that mocks or cheers, with tools refused. She does not talk over the host. The line is not saved in the thread. A dropped client is silence. On Summoner's Rift, a dragon, the voidgrubs, the herald, or baron before they can exist is ignored. Opening a match that is already past a minute and a half does not replay it.
 
-A spoken queue, cancel, accept, ban, or pick is parsed and sent by the desktop. She answers that command with tools refused, and the exchange is kept. A later step from that plan is spoken like a live-match line and is not kept. That choice is `docs/technical-directions/lobby-plan.md`.
+A spoken queue, cancel, accept, ban, or pick is parsed and sent by the league package. She answers that command with tools refused, and the exchange is kept. A later step from that plan is spoken like a live-match line and is not kept. That choice is `docs/technical-directions/lobby-plan.md`.

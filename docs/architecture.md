@@ -1,15 +1,18 @@
 # Architecture
 
-Caprice separates four responsibilities: the assistant turn, model adapters, runtime management, and game integrations. TypeScript owns conversation and tool execution. Rust owns the desktop, microphone, child processes, credentials, and privileged transport.
+Caprice separates four responsibilities: the assistant turn, model adapters, runtime management, and game integrations. TypeScript owns conversation and tool execution. Rust owns the desktop shell, the microphone, child processes, and the League client's credentials and loopback transport.
 
-`packages/core` imports neither voice nor desktop. `packages/voice` imports neither core nor desktop. Desktop is the composition root. React observes the application and binds input; it does not construct provider requests or implement game behavior.
+`packages/core` imports neither voice, desktop, nor a game. `packages/voice` imports neither core nor desktop. A game package imports neither core, voice, nor desktop. Desktop is the composition root. React observes the application and binds input; it does not construct provider requests or implement game behavior.
 
 ```mermaid
 flowchart TB
   subgraph desktop [Desktop composition]
     page[React presence and input]
     turn[Listen, assistant, speak]
-    integrations[Game integrations: tools, instructions, followers]
+  end
+  subgraph gamespkg [Game packages]
+    league[League tools and followers]
+    client[League client]
   end
   subgraph core [Core]
     session[Assistant turn state machine]
@@ -23,14 +26,16 @@ flowchart TB
   subgraph shell [Rust shell]
     model[Configured model transport and runtime]
     speech[Capture and speech runtime states]
-    games[Game discovery and transport]
+    commands[Registered game commands]
   end
   page --> turn
   turn --> session
   turn --> listen
   turn --> speak
-  integrations --> session
-  integrations --> games
+  page --> league
+  league --> session
+  league --> commands
+  commands --> client
   session --> adapter
   session --> events
   adapter --> model
@@ -64,10 +69,10 @@ Nothing is drawn on the work area. The shell icon is the system tray. The page r
 
 ## Games
 
-An integration owns its tools and game instructions. The playing list selects integrations; core has no game dependency. A game that speaks on its own also supplies a follower. One gate runs every follower. It speaks only while the host is idle, and holding talk or Escape cancels the line. The reply uses `notice`, so tools are refused and the saved thread stays unchanged.
+A game package implements `@caprice/games`. Desktop loads it when detection finds it or `enabledGames` lists it. Core does not import a game. A game that speaks on its own also supplies a follower. One gate runs every follower. It speaks only while the host is idle, and holding talk or Escape cancels the line. The reply uses `notice`, so tools are refused and the saved thread stays unchanged.
 
-Rust's League facade delegates credential discovery, request parsing, and HTTP exchange to separate modules. Blocking process discovery runs off the async executor. Credentials remain in Rust, requests stay on loopback, redirects and retries are disabled, and response reads are bounded.
+The League client is `packages/games/league/rust`. It delegates credential discovery, request parsing, and HTTP exchange to separate modules. The desktop shell only registers the commands. Blocking process discovery runs off the async executor. Credentials remain in Rust, requests stay on loopback, redirects and retries are disabled, and response reads are bounded.
 
-Live commentary is League's follower: a poll of that same live-client read. One new fact becomes a host line.
+Live commentary is the league package's follower: a poll of that same live-client read. Desktop runs it. One new fact becomes a host line.
 
-A spoken queue, cancel, accept, ban, or pick is a lobby plan. The desktop sends those client calls. `direct` keeps that exchange and refuses tools. A later step from the plan uses the same remark gate.
+A spoken queue, cancel, accept, ban, or pick is a lobby plan. The league package sends those client calls. `direct` keeps that exchange and refuses tools. A later step from the plan uses the same remark gate.
