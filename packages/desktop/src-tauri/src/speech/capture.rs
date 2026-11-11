@@ -12,6 +12,20 @@ pub(super) struct Captured {
     failure: Option<String>,
 }
 
+#[cfg(test)]
+impl Captured {
+    pub(super) fn from_samples(samples: &[f32]) -> Self {
+        Self {
+            samples: samples.to_vec(),
+            failure: None,
+        }
+    }
+
+    pub(super) fn replace(&mut self, samples: &[f32]) {
+        self.samples = samples.to_vec();
+    }
+}
+
 pub(super) struct Recording {
     stream: cpal::Stream,
     pub(super) captured: Arc<Mutex<Captured>>,
@@ -59,6 +73,21 @@ pub(super) fn open_input() -> Result<Recording, String> {
 pub(super) fn take_fresh(captured: &Mutex<Captured>) -> (Vec<f32>, Option<String>) {
     let mut guard = lock(captured);
     (mem::take(&mut guard.samples), guard.failure.clone())
+}
+
+pub(super) fn capture_failure(captured: &Mutex<Captured>) -> Option<String> {
+    lock(captured).failure.clone()
+}
+
+pub(super) fn captured_len(captured: &Mutex<Captured>) -> usize {
+    lock(captured).samples.len()
+}
+
+pub(super) fn copy_range(captured: &Mutex<Captured>, start: usize, end: usize) -> Vec<f32> {
+    let guard = lock(captured);
+    let end = end.min(guard.samples.len());
+    let start = start.min(end);
+    guard.samples[start..end].to_vec()
 }
 
 fn build_stream(

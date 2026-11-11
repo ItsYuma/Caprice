@@ -1,4 +1,5 @@
 import type { Session } from "@caprice/core";
+import type { GameFollow, GameSpeak } from "@caprice/games";
 import type { Speaker } from "@caprice/voice";
 
 import { remarkAndSpeak } from "./host.ts";
@@ -9,12 +10,9 @@ export type RemarkHost = {
   idle: () => boolean;
 };
 
-export type RemarkSpeak = (cue: string, fallback: string) => Promise<boolean>;
+export type RemarkSpeak = GameSpeak;
 
-export type RemarkFollow = (
-  speak: RemarkSpeak,
-  signal: AbortSignal,
-) => Promise<void>;
+export type RemarkFollow = GameFollow;
 
 export type MatchRemarks = {
   stop: () => void;

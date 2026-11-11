@@ -1,0 +1,4 @@
+[[permission]]
+identifier = "allow-settings"
+description = "Read and write Caprice settings and list local speech models."
+commands.allow = ["settings_get", "settings_put", "models_list"]

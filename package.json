@@ -4,14 +4,15 @@
   "type": "module",
   "packageManager": "bun@1.4.4",
   "workspaces": [
-    "packages/*"
+    "packages/*",
+    "packages/games/*"
   ],
   "scripts": {
     "test": "bun test && bun test ./scripts/layout.test.ts",
     "lint": "oxlint",
     "format": "bun fmt",
     "format:check": "bun fmt --check",
-    "typecheck": "bun check packages/core && bun check packages/voice && bun check packages/desktop && bun check scripts",
+    "typecheck": "bun check packages/core && bun check packages/voice && bun check packages/desktop && bun check packages/games/contract && bun check packages/games/league && bun check scripts",
     "dev": "bun scripts/launch.ts"
   },
   "devDependencies": {

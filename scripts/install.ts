@@ -1,8 +1,6 @@
-import { access, chmod, mkdir, readdir } from "node:fs/promises";
+import { access, chmod, mkdir } from "node:fs/promises";
 
 import {
-  barkFileNames,
-  barkRepo,
   capriceDataDir,
   choose,
   configPath,
@@ -10,27 +8,16 @@ import {
   installHelp,
   launcherPath,
   launcherText,
-  missingNames,
   parseSetupArgs,
   planInstall,
   platformOf,
   readConfig,
-  usesBark,
-  venvDir,
-  venvPython,
-  woofRepo,
   type CapriceConfig,
   type ConfigEnv,
   type InstallPlan,
   type Platform,
   type SetupArgs,
 } from "./layout.ts";
-
-const downloadProgram = `
-import sys
-from huggingface_hub import snapshot_download
-snapshot_download(repo_id=sys.argv[1], local_dir=sys.argv[2])
-`;
 
 const missingChat =
   "Pass --model-url and --model. Those are the chat endpoint and the model name.";
@@ -84,23 +71,7 @@ async function installMain(): Promise<void> {
   const config = plan.config;
 
   await mkdir(data, { recursive: true });
-
-  if (plan.python) {
-    config.python = await ensurePython(parsed.python, platform, data);
-    await ensurePackages(config.python);
-  }
-
-  if (plan.bark) {
-    await mkdir(config.sttModel, { recursive: true });
-    await ensureBark(config.python, config.sttModel);
-  }
-
-  if (plan.woof) {
-    await mkdir(config.ttsWoof, { recursive: true });
-    await ensureWoof(config.python, config.ttsWoof);
-  }
-
-  await verifySpeech(plan);
+  await verifySpeech(config);
   await run(process.execPath, ["install"], repo);
   await Bun.write(configPath(platform, data), configText(config));
   const launcher = launcherPath(platform, data);
@@ -113,9 +84,8 @@ async function installMain(): Promise<void> {
   console.log(`Caprice is set up in ${data}`);
   console.log(`Listen: ${shownEngine(config.sttEngine)} ${config.sttModel}`);
 
-  if (config.ttsEngine === "woof") {
-    console.log(`Woof: ${config.ttsWoof}`);
-    console.log(`Voice: ${config.ttsVoice}`);
+  if (config.ttsEngine === "piper" || config.ttsEngine === "kokoro") {
+    console.log(`Speech: ${config.ttsEngine} is not loaded yet`);
   } else {
     console.log(`Speech: ${config.ttsUrl}`);
   }
@@ -203,133 +173,14 @@ async function savedConfig(
   return read;
 }
 
-async function ensurePython(
-  systemPython: string,
-  platform: Platform,
-  data: string,
-): Promise<string> {
-  const created = venvPython(platform, data);
-
-  if (await isFile(created)) {
-    return created;
+async function verifySpeech(config: CapriceConfig): Promise<void> {
+  if (
+    (config.sttEngine === "" || config.sttEngine === "parakeet") &&
+    config.sttModel.length > 0 &&
+    !(await pathExists(config.sttModel))
+  ) {
+    throw new Error(`Parakeet model was not found at ${config.sttModel}`);
   }
-
-  const base =
-    systemPython.trim().length > 0
-      ? systemPython.trim()
-      : (Bun.which("python3") ?? Bun.which("python") ?? "");
-
-  if (base.length === 0) {
-    throw new Error("python3 is not installed.");
-  }
-
-  await run(base, ["-m", "venv", venvDir(platform, data)], process.cwd());
-
-  if (!(await isFile(created))) {
-    throw new Error(`python venv did not create ${created}`);
-  }
-
-  return created;
-}
-
-async function ensurePackages(python: string): Promise<void> {
-  const ready = await runQuiet(python, ["-c", "import numpy, huggingface_hub"]);
-
-  if (ready === 0) {
-    return;
-  }
-
-  await run(
-    python,
-    ["-m", "pip", "install", "numpy", "huggingface_hub"],
-    process.cwd(),
-  );
-}
-
-async function ensureBark(python: string, directory: string): Promise<void> {
-  if ((await missingBark(directory)).length === 0) {
-    return;
-  }
-
-  console.log(`Downloading ${barkRepo}`);
-  await run(
-    python,
-    ["-c", downloadProgram, barkRepo, directory],
-    process.cwd(),
-  );
-  const missing = await missingBark(directory);
-
-  if (missing.length > 0) {
-    throw new Error(`Bark is missing ${missing.join(", ")} in ${directory}`);
-  }
-}
-
-async function ensureWoof(python: string, directory: string): Promise<void> {
-  if (await importsWoof(python, directory)) {
-    return;
-  }
-
-  console.log(`Downloading ${woofRepo}`);
-  await run(
-    python,
-    ["-c", downloadProgram, woofRepo, directory],
-    process.cwd(),
-  );
-
-  if (!(await importsWoof(python, directory))) {
-    throw new Error(`Woof did not import from ${directory}`);
-  }
-}
-
-async function verifySpeech(plan: InstallPlan): Promise<void> {
-  const config = plan.config;
-
-  if (!plan.bark && usesBark(config.sttEngine)) {
-    const missing = await missingBark(config.sttModel);
-
-    if (missing.length > 0) {
-      throw new Error(
-        `Bark is missing ${missing.join(", ")} in ${config.sttModel}`,
-      );
-    }
-  }
-
-  if (config.sttEngine === "onnx" || config.sttEngine === "parakeet") {
-    if (!(await pathExists(config.sttModel))) {
-      throw new Error(`Pass --stt-model for the ${config.sttEngine} engine.`);
-    }
-  }
-
-  if (config.ttsEngine === "woof" && !plan.woof) {
-    if (!(await pathExists(config.ttsWoof))) {
-      throw new Error(`Woof was not found at ${config.ttsWoof}`);
-    }
-  }
-}
-
-async function importsWoof(
-  python: string,
-  directory: string,
-): Promise<boolean> {
-  const code = await runQuiet(python, [
-    "-c",
-    "import sys; sys.path.insert(0, sys.argv[1]); import underdog_woof",
-    directory,
-  ]);
-
-  return code === 0;
-}
-
-async function missingBark(directory: string): Promise<string[]> {
-  let names: string[] = [];
-
-  try {
-    names = await readdir(directory);
-  } catch {
-    return [...barkFileNames];
-  }
-
-  return missingNames(names, barkFileNames);
 }
 
 async function pathExists(path: string): Promise<boolean> {
@@ -337,10 +188,6 @@ async function pathExists(path: string): Promise<boolean> {
     () => true,
     () => false,
   );
-}
-
-async function isFile(path: string): Promise<boolean> {
-  return pathExists(path);
 }
 
 async function run(
@@ -353,13 +200,6 @@ async function run(
   if (code !== 0) {
     throw new Error(`${command} ${args[0] ?? ""} failed`);
   }
-}
-
-async function runQuiet(
-  command: string,
-  args: readonly string[],
-): Promise<number> {
-  return spawn(command, args, process.cwd(), "pipe");
 }
 
 async function spawn(
@@ -389,9 +229,9 @@ function currentEnv(): ConfigEnv {
     modelDeadlineMs: process.env.CAPRICE_MODEL_DEADLINE_MS ?? "",
     sttEngine: process.env.CAPRICE_STT_ENGINE ?? "",
     sttModel: process.env.CAPRICE_STT_MODEL ?? "",
+    sttUrl: process.env.CAPRICE_STT_URL ?? "",
     sttDeadlineMs: process.env.CAPRICE_STT_DEADLINE_MS ?? "",
     ttsEngine: process.env.CAPRICE_TTS_ENGINE ?? "",
-    ttsWoof: process.env.CAPRICE_TTS_WOOF ?? "",
     ttsVoice: process.env.CAPRICE_TTS_VOICE ?? "",
     ttsUrl: process.env.CAPRICE_TTS_URL ?? "",
     ttsModel: process.env.CAPRICE_TTS_MODEL ?? "",
@@ -402,7 +242,7 @@ function currentEnv(): ConfigEnv {
 
 function shownEngine(engine: string): string {
   if (engine.length === 0) {
-    return "bark";
+    return "parakeet";
   }
 
   return engine;

@@ -1,14 +1,10 @@
 mod league;
 mod model;
+mod models;
+mod settings;
 mod speech;
 mod talk_keys;
 mod tray;
-
-pub use speech::worker::FLAG as SPEECH_WORKER_FLAG;
-
-pub fn speech_worker() -> i32 {
-    speech::worker::run()
-}
 
 use tauri::Manager;
 
@@ -26,9 +22,12 @@ where
 }
 
 #[tauri::command]
-async fn speech_listen_start(state: tauri::State<'_, speech::SpeechState>) -> Result<(), String> {
+async fn speech_listen_start(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, speech::SpeechState>,
+) -> Result<(), String> {
     let state = state.inner().clone();
-    blocking(move || speech::speech_listen_start(&state)).await?
+    blocking(move || speech::speech_listen_start(&app, &state)).await?
 }
 
 #[tauri::command]
@@ -36,7 +35,10 @@ async fn speech_listen_stop(
     state: tauri::State<'_, speech::SpeechState>,
 ) -> Result<String, String> {
     let state = state.inner().clone();
-    blocking(move || speech::speech_listen_stop(&state)).await?
+    match blocking(move || speech::speech_listen_stop(&state)).await?? {
+        speech::ListenStop::Text(text) => Ok(text),
+        speech::ListenStop::Http(clip) => speech::post_clip(clip).await,
+    }
 }
 
 #[tauri::command]
@@ -72,8 +74,12 @@ pub fn run() {
             speech_reply_cancel,
             speech::speak::speech_speak,
             speech::speak::speech_credit,
+            settings::settings_get,
+            settings::settings_put,
+            models::models_list,
             league::league_live,
             league::league_lcu,
+            league::games_detected,
             talk_keys::talk_arm,
             talk_keys::talk_disarm,
         ])

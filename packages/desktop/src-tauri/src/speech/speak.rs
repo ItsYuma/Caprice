@@ -28,16 +28,16 @@ pub(crate) fn speech_credit() -> Result<String, String> {
 }
 
 pub(super) async fn post(text: String) -> Result<Vec<u8>, String> {
-    let url = match std::env::var("CAPRICE_TTS_URL") {
-        Ok(url) if !url.is_empty() => url,
+    let url = match crate::settings::tts_url() {
+        url if !url.is_empty() => url,
         _ => return Err("speech is not configured".to_string()),
     };
-    let model = match std::env::var("CAPRICE_TTS_MODEL") {
-        Ok(model) if !model.is_empty() => model,
+    let model = match crate::settings::tts_model() {
+        model if !model.is_empty() => model,
         _ => return Err("CAPRICE_TTS_MODEL is not set".to_string()),
     };
-    let voice = std::env::var("CAPRICE_TTS_VOICE").unwrap_or_default();
-    let api_key = std::env::var("CAPRICE_TTS_API_KEY").unwrap_or_default();
+    let voice = crate::settings::tts_voice();
+    let api_key = crate::settings::tts_api_key();
     let mut payload = serde_json::json!({
         "model": model,
         "input": text,

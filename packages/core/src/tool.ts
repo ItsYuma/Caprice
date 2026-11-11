@@ -1,4 +1,6 @@
-import type { Result } from "./result.ts";
+import { z } from "zod";
+
+import { fail, ok, type Result } from "./result.ts";
 
 export type ToolKind = "read" | "action";
 
@@ -17,6 +19,51 @@ export type Tool = ToolSpec & {
   parse: (input: string) => Result<string>;
   run: (input: string, context: ToolContext) => Promise<string>;
 };
+
+export type DefinedTool<Value> = {
+  name: string;
+  description: string;
+  kind: ToolKind;
+  schema: z.ZodType<Value>;
+  run: (value: Value, context: ToolContext) => Promise<string>;
+};
+
+export function defineTool<Value>(defined: DefinedTool<Value>): Tool {
+  return {
+    name: defined.name,
+    description: defined.description,
+    kind: defined.kind,
+    parse(input) {
+      return canonical(defined.schema, input);
+    },
+    async run(input, context) {
+      const parsed = defined.schema.safeParse(JSON.parse(input));
+
+      if (!parsed.success) {
+        throw new Error("the tool input is not valid");
+      }
+
+      return defined.run(parsed.data, context);
+    },
+  };
+}
+
+function canonical<Value>(
+  schema: z.ZodType<Value>,
+  input: string,
+): Result<string> {
+  try {
+    const parsed = schema.safeParse(JSON.parse(input));
+
+    if (!parsed.success) {
+      return fail("the tool input is not valid");
+    }
+
+    return ok(JSON.stringify(parsed.data));
+  } catch {
+    return fail("the tool input is not valid");
+  }
+}
 
 export function toolGuide(tools: readonly ToolSpec[]): string {
   if (tools.length === 0) {

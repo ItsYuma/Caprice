@@ -14,7 +14,7 @@ From the repo root, with Bun 1.4.4:
 | `bun fmt`                     | Format                                                 |
 | `bun run format:check`        | Format check                                           |
 | `bun run typecheck`           | `bun check` on each package                            |
-| `scripts/install.sh`          | Linux and macOS setup: tools, Woof, Bark, config       |
+| `scripts/install.sh`          | Linux and macOS setup: tools and config                |
 | `scripts/install.ps1`         | Windows setup. Same flags as `scripts/install.sh`      |
 | `bun run dev`                 | Tauri window. Fills unset vars from the install config |
 | `bun run dev -- --release`    | Same window. The Rust shell uses the release profile   |
@@ -22,6 +22,8 @@ From the repo root, with Bun 1.4.4:
 | `cargo test`                  | Rust shell tests, from `packages/desktop/src-tauri`    |
 | `cargo fmt`                   | Format the shell                                       |
 | `cargo clippy -- -D warnings` | Rust lints for the shell. Warnings fail                |
+| `cargo test`                  | League client, from `packages/games/league/rust`       |
+| `cargo clippy -- -D warnings` | League client, from `packages/games/league/rust`       |
 
 The shell needs Rust 1.99.1. Tauri 2.12 does not build on 1.83. `rust-toolchain.toml` at the repo root selects it. The Tauri CLI asks `rustc` from `packages/desktop`, and rustup only walks parent directories.
 
@@ -33,20 +35,22 @@ Stable Bun 1.4.4 has `bun test`, `bun fmt`, and `bun check`. `bun lint` in that 
 
 ## Layout
 
-| Path                         | Owns                                                  |
-| ---------------------------- | ----------------------------------------------------- |
-| `packages/core`              | `Session`, `Model`, `Tool`, `Result`, persona slicing |
-| `packages/voice`             | `Listener` and `Speaker`                              |
-| `packages/desktop`           | React window, `sayAndSpeak`, and the League client    |
-| `scripts/`                   | `install.sh`, `install.ps1`, and the dev launcher     |
-| `skills/`                    | Text the local model reads                            |
-| `docs/architecture.md`       | The diagram and the dependency rule                   |
-| `docs/technical-directions/` | A decision later work would guess wrong without       |
-| `CAPRI.md`                   | Character facts the product may use                   |
-| `MILESTONES.md`              | What is next                                          |
-| `tools/oxlint/anti-slop`     | Vendored upstream. Do not restyle it                  |
+| Path                         | Owns                                              |
+| ---------------------------- | ------------------------------------------------- |
+| `packages/core`              | `Session`, `ToolLoopAgent`, `Tool`, MCP, persona  |
+| `packages/voice`             | `Listener`, `Speaker`, STT, TTS, and VAD          |
+| `packages/desktop`           | React window, `sayAndSpeak`, and which games load |
+| `packages/games/contract`    | The game plugin interface                         |
+| `packages/games/league`      | League tools, followers, and the client crate     |
+| `scripts/`                   | `install.sh`, `install.ps1`, and the dev launcher |
+| `skills/`                    | Text the local model reads                        |
+| `docs/architecture.md`       | The diagram and the dependency rule               |
+| `docs/technical-directions/` | A decision later work would guess wrong without   |
+| `CAPRI.md`                   | Character facts the product may use               |
+| `MILESTONES.md`              | What is next                                      |
+| `tools/oxlint/anti-slop`     | Vendored upstream. Do not restyle it              |
 
-`packages/core` does not import `packages/voice` or `packages/desktop`. `packages/voice` does not import the other packages. The shell is the only composer. Rust opens the window. It does not own the session.
+`packages/core` does not import `packages/voice`, `packages/desktop`, or `packages/games`. `packages/voice` does not import the other packages. A game package does not import core, voice, or desktop. The shell is the only composer. Rust opens the window. It does not own the session.
 
 ## Files
 
@@ -102,6 +106,9 @@ The window talks to whatever chat endpoint the environment names. Set both of th
 | `CAPRICE_MODEL_PROTOCOL`   | Empty or `text` uses the whole-reply call convention. `native` sends registered function tools |
 | `CAPRICE_MODEL_RUNTIME`    | Empty or `external` uses the endpoint as it is. `ollama` starts a configured child             |
 | `CAPRICE_MODEL_EXECUTABLE` | Program for `ollama`. Required only for that runtime                                           |
+| `CAPRICE_MCP`              | Optional JSON list of MCP servers. Empty means none                                            |
+
+The assistant turn is `ToolLoopAgent`. Text and native both go through that one loop. `defineTool` adds a Zod schema on the existing tool type. That choice is `docs/technical-directions/agent-sdk.md`.
 
 Inside the Tauri window, Rust reads the URL, the model name, and the bearer token. The page calls `model_complete` with the chat body and a request id, and `model_cancel` with that id. `model_endpoint` returns the model, the protocol, and the timeout. A managed runtime stops only a child it started and does not download model files. A page opened outside Tauri gets the same names through Vite and posts with `postJson`, so that endpoint must allow the page origin. `postJson` is the browser fetch for a JSON body. It sets `content-type: application/json`, and `Authorization: Bearer` when the key is non-empty. Spoken audio outside the window uses `postSpeech`, because the response is bytes. `packages/core` does not read the environment and does not open files.
 
@@ -111,30 +118,29 @@ Inside the Tauri window, Rust reads the URL, the model name, and the bearer toke
 
 Hold Alt+Space or Ctrl+Space. Release to send. A tap does not send. Listening starts after `talkHoldDelay` in `packages/desktop/src/talk.ts`. The chords are `talkChords` in that file. The page is parked off-screen, so it never has focus. The shell hears those chords with the same global hook Handy uses, and it swallows them before the focused app sees them. That choice is `docs/technical-directions/talk-chord.md`. On macOS the hook needs Accessibility. On Linux it reads evdev, so the user needs the `input` group, and swallowing the chord needs write access to `/dev/uinput`. Without that, a window manager can still take Alt+Space. WebKitGTK does not matter for speech.
 
-Nothing is drawn on the work area. The icon sits in the system tray, which Windows keeps at the end of the taskbar. The page runs in a window parked off that area so speech and League keep their timers. The tray menu stops the current turn or quits. A settings window is later. That choice is `docs/technical-directions/tray-presence.md`.
+Nothing is drawn on the work area. The icon sits in the system tray, which Windows keeps at the end of the taskbar. The presence page runs in a window parked off that area so speech and League keep their timers. The tray menu is Settings, Stop, and Quit. Settings opens a decorated window. That choice is `docs/technical-directions/tray-presence.md`.
 
-`listenAndSay` waits for `listen`, then runs `say`, then the speaker. `hear` starts at release, and `voice` ends when the audio bytes are ready, before playback. For `bark-stream` and `parakeet`, `hear` is the tail after release, not the whole clip. The listener is `captureListener`. Inside the Tauri window, Rust records the default microphone. Empty, `bark`, and `onnx` send the whole clip when the key is released. `bark-stream` and `parakeet` feed samples while the key is held, one feed at a time, and `finish` returns the transcript on release. Release does not also transcribe that clip. The worker is this binary started with `--speech-worker`. It loads the model once and stays until the window exits. The page calls `speech_listen_start`, `speech_listen_stop`, `speech_cancel`, `speech_speak`, and `speech_reply_cancel`. `scriptedListener` and `recordingSpeaker` stay for tests.
+`listenAndSay` waits for `listen`, then runs `say`, then the speaker. `voice` ends when the audio bytes are ready, before playback. The listener is `captureListener`. Inside the Tauri window, Rust records the default microphone and loads Parakeet in that process. Parakeet streams while the key is held, so `hear` is the tail after release. HTTP does not stream, so `hear` is the whole clip after release. There is no `--speech-worker` child. The page calls `speech_listen_start`, `speech_listen_stop`, `speech_cancel`, `speech_speak`, and `speech_reply_cancel`. `scriptedListener` and `recordingSpeaker` stay for tests.
 
-| Variable              | What it is                                                                                                                                                                                                                                                                                                                               |
-| --------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `CAPRICE_STT_ENGINE`  | Speech engine name. Empty or `bark` loads the Bark checkpoint and transcribes the clip on release. `bark-stream` loads that same checkpoint and transcribes while the key is held. `onnx` loads the int8 ONNX directory. `parakeet` loads Parakeet Unified English 0.6B and streams it while the key is held. Any other name is an error |
-| `CAPRICE_STT_MODEL`   | Directory for that engine, or a GGUF for `parakeet`. ONNX needs the encoder, the decoder, `nemo128.onnx`, and `vocab.txt`. Bark needs `config.json`, `tokenizer.json`, and `model.safetensors`. Parakeet takes a `.gguf` file or a directory that contains one                                                                           |
-| `CAPRICE_TTS_ENGINE`  | Empty or `http` is the POST. `woof` is the resident child                                                                                                                                                                                                                                                                                |
-| `CAPRICE_TTS_WOOF`    | Underdog Woof directory. The installer stores the Hugging Face checkout here                                                                                                                                                                                                                                                             |
-| `CAPRICE_PYTHON`      | Interpreter for the Woof child. Empty uses `python3`                                                                                                                                                                                                                                                                                     |
-| `CAPRICE_TTS_URL`     | Full URL for a JSON body `{ model, input }`                                                                                                                                                                                                                                                                                              |
-| `CAPRICE_TTS_MODEL`   | Model name sent in that body                                                                                                                                                                                                                                                                                                             |
-| `CAPRICE_TTS_VOICE`   | Optional. HTTP adds `voice` when this is non-empty. Woof uses empty or `juno` for Juno and `mira` for Mira                                                                                                                                                                                                                               |
-| `CAPRICE_TTS_API_KEY` | Optional bearer token. Omit it when the endpoint does not need one                                                                                                                                                                                                                                                                       |
+| Variable              | What it is                                                                                                                                               |
+| --------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `CAPRICE_STT_ENGINE`  | Empty or `parakeet` streams a Parakeet GGUF while the key is held. `http` posts the whole clip on release. `bark`, `bark-stream`, and `onnx` are retired |
+| `CAPRICE_STT_MODEL`   | Parakeet GGUF path, or the model name for `http`                                                                                                         |
+| `CAPRICE_STT_URL`     | Full URL for HTTP speech. Required when the engine is `http`                                                                                             |
+| `CAPRICE_TTS_ENGINE`  | Empty or `http` is the POST. `piper` and `kokoro` can be selected and are not loaded yet                                                                 |
+| `CAPRICE_TTS_URL`     | Full URL for a JSON body `{ model, input }`                                                                                                              |
+| `CAPRICE_TTS_MODEL`   | Model name sent in that body                                                                                                                             |
+| `CAPRICE_TTS_VOICE`   | Optional. HTTP adds `voice` when this is non-empty                                                                                                       |
+| `CAPRICE_TTS_API_KEY` | Optional bearer token. Omit it when the endpoint does not need one                                                                                       |
 
-The ONNX variant loads the int8 weights through `transcribe-rs`. The Bark variant loads the safetensors checkpoint through telmo, in bf16, and prepends a quarter second of silence. `bark-stream` loads that checkpoint. After the lead, each window has 10 seconds of left context, a 2 second center, and 2 seconds of right context. `parakeet` loads a Parakeet Unified English 0.6B GGUF through transcribe.cpp. Its window is 5.6 seconds of left context, an 0.08 second chunk, and 0.08 seconds of right context. Another speech model is a new engine variant in that worker, not a new language. No microphone name, host, or model id is hardcoded. Caprice does not start Handy and does not use the Web Speech API.
+Empty or `parakeet` loads one Parakeet GGUF through transcribe.cpp and feeds it while the key is held. Release finalizes that stream. `http` does not stream: it posts the whole clip as a 16 kHz mono wav in `{ model, input }`. `models_list` discovers files under the app data `models` folder, or a directory chosen in settings. Recording mode `hold` is push-to-talk. `vad` ends the utterance after 800 ms under the energy gate. The default sensitivity is 40. Settings can restrict the talk chord to Alt+Space or Ctrl+Space. When settings are absent, both still work. That choice is `docs/technical-directions/local-speech.md`. No microphone name, host, or model id is hardcoded. Caprice does not start Handy and does not use the Web Speech API.
 
-`CAPRICE_TTS_ENGINE` selects the spoken reply. Empty or `http` posts to `CAPRICE_TTS_URL` with `CAPRICE_TTS_MODEL`. `woof` is a resident child. `CAPRICE_PYTHON` is that interpreter when it is set, and empty uses `python3`. `CAPRICE_TTS_WOOF` is the Underdog Woof directory. Rust speaks inside the window and returns the bytes. The page colors those samples by raising the voice two semitones without shortening it, then two echoes 40 ms apart at -10 dB and -16 dB, then an 80 Hz sine tremolo at 15% wet. The first sample stays the first sample. The echo trail is 80 ms. That choice is `docs/technical-directions/reply-color.md`. `speech_credit` is `Voice by Underdog Woof` for `woof`, and empty for HTTP. `scripts/install.sh` and `scripts/install.ps1` download Woof and Bark into the user data directory and write `config.json`. `bun run dev` fills any unset `CAPRICE_*` variable from that file. Outside Tauri the page does not invoke. Listening fails because the speech model is unavailable. Speaking uses `postSpeech` only when both `CAPRICE_TTS_URL` and `CAPRICE_TTS_MODEL` are set, and otherwise rejects with `speech is not configured`.
+`CAPRICE_TTS_ENGINE` selects the spoken reply. Empty or `http` posts to `CAPRICE_TTS_URL` with `CAPRICE_TTS_MODEL`. Rust speaks inside the window and returns the bytes. The page colors those samples by raising the voice two semitones without shortening it, then two echoes 40 ms apart at -10 dB and -16 dB, then an 80 Hz sine tremolo at 15% wet. The first sample stays the first sample. The echo trail is 80 ms. That choice is `docs/technical-directions/reply-color.md`. `speech_credit` is empty. `scripts/install.sh` and `scripts/install.ps1` write `config.json` and do not download Bark or Woof. `bun run dev` fills any unset `CAPRICE_*` variable from that file. Outside Tauri the page does not invoke. Listening fails because the speech model is unavailable. Speaking uses `postSpeech` only when both `CAPRICE_TTS_URL` and `CAPRICE_TTS_MODEL` are set, and otherwise rejects with `speech is not configured`.
 
 ## League
 
-`league_live` and `league_lcu` are the League tools. The model sees `skills/host` from `## Contract` and `skills/league` from `## Play`, after the voice. A call is the whole reply, and the session runs it. The result is a host line the model answers from. A turn stops after four calls.
+`league_live` and `league_lcu` are the League tools. They live in `@caprice/league`. Desktop loads that package when `games_detected` finds the client or `enabledGames` includes `league`. The model sees `skills/host` from `## Contract` and `skills/league` from `## Play`, after the voice. A call is the whole reply, and the session runs it. The result is a host line the model answers from. A turn stops after four calls.
 
-Rust calls `127.0.0.1` only. `league_live` is the Live Client Data API on port 2999. `league_lcu` is the League client API. The port and the token come from the running client: its command line, then its lockfile. On Windows the command line is `LeagueClientUx.exe`, and the lockfile is also checked under the usual Riot folders on `C` through `H`. `CAPRICE_LEAGUE_LOCKFILE` is that lockfile when the install is somewhere else. The token is not shown to the model. Outside the Tauri window both tools say the league client is not available in this window. While the Tauri window is open, the desktop polls `/liveclientdata/allgamedata` through that same command. A new fact — the match starting or ending, your kill, death, or multikill, an objective, or one note that someone is fed or feeding — is spoken as one line that mocks or cheers, with tools refused. She does not talk over the host. The line is not saved in the thread. A dropped client is silence. On Summoner's Rift, a dragon, the voidgrubs, the herald, or baron before they can exist is ignored. Opening a match that is already past a minute and a half does not replay it.
+Rust calls `127.0.0.1` only, from `packages/games/league/rust`. `league_live` is the Live Client Data API on port 2999. `league_lcu` is the League client API. The port and the token come from the running client: its command line, then its lockfile. On Windows the command line is `LeagueClientUx.exe`, and the lockfile is also checked under the usual Riot folders on `C` through `H`. `CAPRICE_LEAGUE_LOCKFILE` is that lockfile when the install is somewhere else. The token is not shown to the model. Outside the Tauri window the tools are not loaded. While the Tauri window is open, the league package polls `/liveclientdata/allgamedata` through that same command. A new fact — the match starting or ending, your kill, death, or multikill, an objective, or one note that someone is fed or feeding — is spoken as one line that mocks or cheers, with tools refused. She does not talk over the host. The line is not saved in the thread. A dropped client is silence. On Summoner's Rift, a dragon, the voidgrubs, the herald, or baron before they can exist is ignored. Opening a match that is already past a minute and a half does not replay it.
 
-A spoken queue, cancel, accept, ban, or pick is parsed and sent by the desktop. She answers that command with tools refused, and the exchange is kept. A later step from that plan is spoken like a live-match line and is not kept. That choice is `docs/technical-directions/lobby-plan.md`.
+A spoken queue, cancel, accept, ban, or pick is parsed and sent by the league package. She answers that command with tools refused, and the exchange is kept. A later step from that plan is spoken like a live-match line and is not kept. That choice is `docs/technical-directions/lobby-plan.md`.

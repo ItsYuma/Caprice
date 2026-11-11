@@ -8,9 +8,7 @@ use transcribe_cpp::{
     Stream, StreamExtension, StreamOptions,
 };
 
-use super::buffered::{RangeDecoder, Utterance, CHUNK_MS, LEFT_MS, RATE, RIGHT_MS};
-use super::contract::Transcriber;
-use super::pcm::resample_linear;
+use super::buffered::{RangeDecoder, Utterance, CHUNK_MS, LEFT_MS, RIGHT_MS};
 
 const STACK: usize = 16 * 1024 * 1024;
 
@@ -24,7 +22,6 @@ pub(super) struct UnifiedEngine {
 enum Ask {
     Feed(Vec<f32>, Sender<Result<String, String>>),
     Finish(Sender<Result<String, String>>),
-    Transcribe(Vec<f32>, Sender<Result<String, String>>),
     Reset(Sender<()>),
     Stop,
 }
@@ -100,16 +97,15 @@ impl RangeDecoder for Native<'_, '_> {
 }
 
 impl UnifiedEngine {
-    pub(super) fn feed(&mut self, samples: &[f32]) -> Result<String, String> {
+    pub(super) fn feed(&self, samples: &[f32]) -> Result<String, String> {
+        if samples.is_empty() {
+            return Ok(String::new());
+        }
         self.round(|reply| Ask::Feed(samples.to_vec(), reply))
     }
 
-    pub(super) fn finish(&mut self) -> Result<String, String> {
+    pub(super) fn finish(&self) -> Result<String, String> {
         self.round(Ask::Finish)
-    }
-
-    fn transcribe_pcm(&mut self, samples: &[f32]) -> Result<String, String> {
-        self.round(|reply| Ask::Transcribe(samples.to_vec(), reply))
     }
 
     pub(super) fn cancel(&self) {
@@ -118,15 +114,7 @@ impl UnifiedEngine {
         }
     }
 
-    pub(super) fn cancellation(&self) -> Option<CancelToken> {
-        if self.cancellable {
-            Some(self.cancel.clone())
-        } else {
-            None
-        }
-    }
-
-    pub(super) fn reset(&mut self) {
+    pub(super) fn reset(&self) {
         self.cancel.reset();
         let (tx, rx) = mpsc::channel();
         if self.tx.send(Ask::Reset(tx)).is_err() {
@@ -145,16 +133,6 @@ impl UnifiedEngine {
             .map_err(|_| "parakeet stream stopped".to_string())?;
         rx.recv()
             .map_err(|_| "parakeet stream stopped".to_string())?
-    }
-}
-
-impl Transcriber for UnifiedEngine {
-    fn transcribe(&mut self, samples: &[f32], sample_rate: u32) -> Result<String, String> {
-        let audio = resample_linear(samples, sample_rate, RATE);
-        if audio.is_empty() {
-            return Ok(String::new());
-        }
-        self.transcribe_pcm(&audio)
     }
 }
 
@@ -215,9 +193,6 @@ fn serve(mut session: Session, cancel: CancelToken, rx: Receiver<Ask>) {
                 cancel.reset();
                 let _ = reply.send(());
             }
-            Ask::Transcribe(pcm, reply) => {
-                let _ = reply.send(run_offline(&mut session, &pcm));
-            }
             Ask::Finish(reply) => {
                 let _ = reply.send(Ok(String::new()));
             }
@@ -275,32 +250,14 @@ fn run_utterance(
                 let _ = reply.send(result);
                 return true;
             }
-            Ok(Ask::Transcribe(pcm, reply)) => {
-                drop(utterance);
-                drop(stream);
-                let _ = reply.send(run_offline(session, &pcm));
-                return true;
-            }
             Ok(Ask::Reset(reply)) => {
                 cancel.reset();
-                drop(utterance);
-                drop(stream);
                 let _ = reply.send(());
                 return true;
             }
             Ok(Ask::Stop) | Err(_) => return false,
         }
     }
-}
-
-fn run_offline(session: &mut Session, samples: &[f32]) -> Result<String, String> {
-    if samples.is_empty() {
-        return Ok(String::new());
-    }
-    let transcript = session
-        .run(samples, &RunOptions::default())
-        .map_err(show_run)?;
-    Ok(transcript.text.trim().to_string())
 }
 
 fn buffered_options() -> StreamOptions {
@@ -330,7 +287,7 @@ fn ensure_runtime() -> Result<(), String> {
         .clone()
 }
 
-fn weights_file(path: &Path) -> Result<PathBuf, String> {
+pub(super) fn weights_file(path: &Path) -> Result<PathBuf, String> {
     if path.is_file() {
         return Ok(path.to_path_buf());
     }

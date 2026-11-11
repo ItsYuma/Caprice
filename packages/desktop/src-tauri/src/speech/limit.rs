@@ -4,15 +4,14 @@ pub(super) const STT_DEADLINE_MS: u64 = 180_000;
 pub(super) const TTS_DEADLINE_MS: u64 = 60_000;
 pub(super) const MAX_RECORDING_SECS: u64 = 180;
 pub(super) const REPLY_BYTES: usize = 8 * 1024 * 1024;
-pub(super) const WORKER_REQUEST_BYTES: usize = 64 * 1024 * 1024;
-pub(super) const WORKER_RESPONSE_BYTES: usize = 1024 * 1024;
-
-pub(super) fn stream_samples() -> usize {
-    16_000 * MAX_RECORDING_SECS as usize
-}
+pub(super) const TRANSCRIPT_BYTES: usize = 1024 * 1024;
 
 pub(super) fn recording_samples(rate: u32) -> usize {
     usize::try_from(u64::from(rate).saturating_mul(MAX_RECORDING_SECS)).unwrap_or(usize::MAX)
+}
+
+pub(super) fn stream_samples() -> usize {
+    usize::try_from(16_000u64.saturating_mul(MAX_RECORDING_SECS)).unwrap_or(usize::MAX)
 }
 
 pub(super) fn stt_deadline() -> Result<Duration, String> {

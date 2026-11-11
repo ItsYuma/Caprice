@@ -1,4 +1,5 @@
-import { fail, fromCause, ok, type Result } from "./result.ts";
+import { runLoop, toolTurnLimit } from "./loop.ts";
+import { fail, ok, type Result } from "./result.ts";
 import {
   clipText,
   conversationEvents,
@@ -8,12 +9,9 @@ import {
   type AssistantEvent,
   type TranscriptEvent,
 } from "./transcript.ts";
-import {
-  toolSpecs,
-  type Tool,
-  type ToolContext,
-  type ToolSpec,
-} from "./tool.ts";
+import type { Tool, ToolSpec } from "./tool.ts";
+
+export { toolTurnLimit };
 
 export type ModelCall = {
   id: string;
@@ -50,10 +48,6 @@ export type Session = {
   ) => Promise<Result<AssistantEvent>>;
   cancel: () => void;
 };
-
-export const toolTurnLimit = 4;
-
-const budgetSpent = "too many tool calls";
 
 type IdleTurn = {
   status: "idle";
@@ -92,191 +86,13 @@ export function openSession(
     return turn.status === "running" && turn.generation === mine;
   }
 
-  async function run(
-    mine: number,
-    signal: AbortSignal,
-    request: string,
-  ): Promise<Result<AssistantEvent>> {
-    let used = 0;
-
-    for (let round = 0; round <= toolTurnLimit; round += 1) {
-      if (!running(mine)) {
-        return fail("cancelled");
-      }
-
-      const acceptTools = used < toolTurnLimit;
-
-      const reply = await completeTurn(
-        mine,
-        signal,
-        request,
-        acceptTools,
-        toolSpecs(offered),
-        events,
-      );
-
-      if (!running(mine)) {
-        return fail("cancelled");
-      }
-
-      if (!reply.ok) {
-        return reply;
-      }
-
-      if (reply.value.kind === "message") {
-        const assistant: AssistantEvent = {
-          kind: "assistant",
-          text: reply.value.text,
-        };
-
-        events.push(assistant);
-        trimTranscript(events);
-
-        return ok(assistant);
-      }
-
-      if (reply.value.calls.length === 0) {
-        return fail("the model returned an empty tool call");
-      }
-
-      if (!acceptTools) {
-        return fail(budgetSpent);
-      }
-
-      for (const call of reply.value.calls) {
-        if (!running(mine)) {
-          return fail("cancelled");
-        }
-
-        if (used >= toolTurnLimit) {
-          rememberCall(call);
-          pushResult(call, false, budgetSpent);
-
-          continue;
-        }
-
-        used += 1;
-        const ran = await runCall(mine, call, request, signal);
-
-        if (!ran.ok) {
-          return ran;
-        }
-      }
-    }
-
-    return fail(budgetSpent);
-  }
-
-  async function completeTurn(
-    mine: number,
-    signal: AbortSignal,
-    request: string,
-    acceptTools: boolean,
-    tools: readonly ToolSpec[],
-    seen: readonly TranscriptEvent[],
-  ): Promise<Result<ModelOutput>> {
-    if (!running(mine)) {
-      return fail("cancelled");
-    }
-
-    const settled = await untilAbort(
-      () =>
-        model.complete({
-          persona,
-          request,
-          events: copyEvents(seen),
-          tools,
-          acceptTools,
-          signal,
-        }),
-      signal,
-      "the model request failed",
-    );
-
-    if (!running(mine)) {
-      return fail("cancelled");
-    }
-
-    if (!settled.ok) {
-      return settled;
-    }
-
-    return settled.value;
-  }
-
-  async function runCall(
-    mine: number,
-    call: ModelCall,
-    request: string,
-    signal: AbortSignal,
-  ): Promise<Result<boolean>> {
-    if (!running(mine)) {
-      return fail("cancelled");
-    }
-
-    rememberCall(call);
-
-    const tool = findTool(offered, call.name);
-
-    if (tool === undefined) {
-      pushResult(call, false, `no tool named ${call.name}`);
-
-      return ok(true);
-    }
-
-    const parsed = readToolInput(tool, call.input);
-
-    if (!parsed.ok) {
-      pushResult(call, false, parsed.error.message);
-
-      return ok(true);
-    }
-
-    if (!running(mine)) {
-      pushResult(call, false, "cancelled");
-
-      return fail("cancelled");
-    }
-
-    const context: ToolContext = { request, signal };
-
-    const ran = await untilAbort(
-      () => tool.run(parsed.value, context),
-      signal,
-      "the tool failed",
-    );
-
-    if (!running(mine)) {
-      if (ran.ok) {
-        pushResult(call, true, ran.value);
-      } else {
-        pushResult(call, false, "cancelled");
-      }
-
-      return fail("cancelled");
-    }
-
-    if (!ran.ok) {
-      pushResult(call, false, ran.error.message);
-
-      return ok(true);
-    }
-
-    pushResult(call, true, ran.value);
-
-    return ok(true);
-  }
-
-  function rememberCall(call: ModelCall): void {
+  function record(call: ModelCall, succeeded: boolean, text: string): void {
     events.push({
       kind: "tool-call",
       id: call.id,
       name: call.name,
       input: clipText(call.input, toolResultLimit),
     });
-  }
-
-  function pushResult(call: ModelCall, succeeded: boolean, text: string): void {
     events.push({
       kind: "tool-result",
       id: call.id,
@@ -285,6 +101,10 @@ export function openSession(
       text: clipText(text, toolResultLimit),
     });
     trimTranscript(events);
+  }
+
+  function ignore(): void {
+    return;
   }
 
   return {
@@ -315,17 +135,20 @@ export function openSession(
 
       const request = clipText(hostText, threadSizeLimit);
       const seen = copyEvents(events);
+
       seen.push({ kind: "user", text: request });
 
       try {
-        const reply = await completeTurn(
-          mine,
-          controller.signal,
+        const reply = await runLoop({
+          mode: "refused",
+          persona,
           request,
-          true,
-          [],
-          seen,
-        );
+          signal: controller.signal,
+          model,
+          tools: offered,
+          events: () => seen,
+          record: ignore,
+        });
 
         if (!running(mine)) {
           return fail("cancelled");
@@ -335,11 +158,7 @@ export function openSession(
           return reply;
         }
 
-        if (reply.value.kind !== "message") {
-          return fail("the model called a tool");
-        }
-
-        return ok({ kind: "assistant", text: reply.value.text });
+        return ok({ kind: "assistant", text: reply.value });
       } finally {
         if (current(mine)) {
           turn = { status: "idle" };
@@ -371,33 +190,31 @@ export function openSession(
           seen.push({ kind: "user", text: aside });
         }
 
-        const reply = await completeTurn(
-          mine,
-          controller.signal,
+        const reply = await runLoop({
+          mode: "refused",
+          persona,
           request,
-          true,
-          [],
-          seen,
-        );
+          signal: controller.signal,
+          model,
+          tools: offered,
+          events: () => seen,
+          record: ignore,
+        });
 
         if (!running(mine)) {
           return fail("cancelled");
         }
 
-        if (reply.ok && reply.value.kind === "message") {
-          const text = reply.value.text.trim();
+        if (reply.ok && reply.value.trim().length > 0) {
+          const assistant: AssistantEvent = {
+            kind: "assistant",
+            text: reply.value,
+          };
 
-          if (text.length > 0) {
-            const assistant: AssistantEvent = {
-              kind: "assistant",
-              text: reply.value.text,
-            };
+          events.push(assistant);
+          trimTranscript(events);
 
-            events.push(assistant);
-            trimTranscript(events);
-
-            return ok(assistant);
-          }
+          return ok(assistant);
         }
 
         if (!running(mine)) {
@@ -444,7 +261,34 @@ export function openSession(
       trimTranscript(events);
 
       try {
-        return await run(mine, controller.signal, request);
+        const reply = await runLoop({
+          mode: "say",
+          persona,
+          request,
+          signal: controller.signal,
+          model,
+          tools: offered,
+          events: () => events,
+          record,
+        });
+
+        if (!running(mine)) {
+          return fail("cancelled");
+        }
+
+        if (!reply.ok) {
+          return reply;
+        }
+
+        const assistant: AssistantEvent = {
+          kind: "assistant",
+          text: reply.value,
+        };
+
+        events.push(assistant);
+        trimTranscript(events);
+
+        return ok(assistant);
       } finally {
         if (current(mine)) {
           turn = { status: "idle" };
@@ -465,24 +309,6 @@ export function stubModel(): Model {
   };
 }
 
-function readToolInput(tool: Tool, input: string): Result<string> {
-  try {
-    return tool.parse(input);
-  } catch (cause) {
-    return fromCause(cause, "the tool failed");
-  }
-}
-
-function findTool(tools: readonly Tool[], name: string): Tool | undefined {
-  for (const tool of tools) {
-    if (tool.name === name) {
-      return tool;
-    }
-  }
-
-  return undefined;
-}
-
 function copyEvents(events: readonly TranscriptEvent[]): TranscriptEvent[] {
   const copy: TranscriptEvent[] = [];
 
@@ -491,67 +317,4 @@ function copyEvents(events: readonly TranscriptEvent[]): TranscriptEvent[] {
   }
 
   return copy;
-}
-
-async function untilAbort<T>(
-  start: () => Promise<T>,
-  signal: AbortSignal,
-  fallback: string,
-): Promise<Result<T>> {
-  if (signal.aborted) {
-    return fail("cancelled");
-  }
-
-  let pending: Promise<T>;
-
-  try {
-    pending = start();
-  } catch (cause) {
-    return fromCause(cause, fallback);
-  }
-
-  return new Promise((resolve) => {
-    let settled = false;
-
-    const finish = (result: Result<T>) => {
-      if (settled) {
-        return;
-      }
-
-      settled = true;
-      signal.removeEventListener("abort", onAbort);
-      resolve(result);
-    };
-
-    const onAbort = () => {
-      finish(fail("cancelled"));
-    };
-
-    if (signal.aborted) {
-      onAbort();
-    } else {
-      signal.addEventListener("abort", onAbort, { once: true });
-    }
-
-    pending.then(
-      (value) => {
-        if (signal.aborted) {
-          finish(fail("cancelled"));
-
-          return;
-        }
-
-        finish(ok(value));
-      },
-      (cause) => {
-        if (signal.aborted) {
-          finish(fail("cancelled"));
-
-          return;
-        }
-
-        finish(fromCause(cause, fallback));
-      },
-    );
-  });
 }

@@ -10,6 +10,8 @@
   },
   "dependencies": {
     "@caprice/core": "workspace:*",
+    "@caprice/games": "workspace:*",
+    "@caprice/league": "workspace:*",
     "@caprice/voice": "workspace:*",
     "@tauri-apps/api": "^2",
     "react": "^19.3.1",
