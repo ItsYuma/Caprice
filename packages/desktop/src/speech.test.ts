@@ -234,17 +234,17 @@ test("the page speaks over http and refuses a shell engine", async () => {
     CAPRICE_TTS_MODEL: "voice-d",
   };
 
-  const woof = pageSpeaker(env, " woof ", post, async () => {});
+  const local = pageSpeaker(env, " piper ", post, async () => {});
 
-  await expect(woof.speak("hey", live)).rejects.toThrow(
-    "speech engine runs in the shell: woof",
+  await expect(local.speak("hey", live)).rejects.toThrow(
+    "speech engine runs in the shell: piper",
   );
   expect(posts).toBe(0);
   expect(pageCanSpeak("")).toBe(true);
   expect(pageCanSpeak("   ")).toBe(true);
   expect(pageCanSpeak("http")).toBe(true);
   expect(pageCanSpeak(" http ")).toBe(true);
-  expect(pageCanSpeak("woof")).toBe(false);
+  expect(pageCanSpeak("piper")).toBe(false);
   expect(pageCanSpeak("HTTP")).toBe(false);
   expect(pageCanSpeak("https")).toBe(false);
 
@@ -261,13 +261,13 @@ test("speech credit is empty outside the shell and kept from the command", async
     await readSpeechCredit(false, async () => {
       reads += 1;
 
-      return "Voice by Underdog Woof";
+      return "spoken voice";
     }),
   ).toBe("");
   expect(reads).toBe(0);
-  expect(
-    await readSpeechCredit(true, async () => "Voice by Underdog Woof"),
-  ).toBe("Voice by Underdog Woof");
+  expect(await readSpeechCredit(true, async () => "spoken voice")).toBe(
+    "spoken voice",
+  );
   expect(await readSpeechCredit(true, async () => "")).toBe("");
   await expect(
     readSpeechCredit(true, async () => {

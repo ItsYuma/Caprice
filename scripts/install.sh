@@ -17,10 +17,10 @@ reject_unknown_args() {
     case "$token" in
       --help | -h | --skip-system)
         ;;
-      --model-url | --model-api-key | --model-protocol | --model-runtime | --model-executable | --model-deadline-ms | --model | --voice | --stt-engine | --stt-model | --stt-deadline-ms | --tts-engine | --tts-woof | --tts-url | --tts-model | --tts-api-key | --tts-deadline-ms | --data-dir | --python | --container)
+      --model-url | --model-api-key | --model-protocol | --model-runtime | --model-executable | --model-deadline-ms | --model | --voice | --stt-engine | --stt-model | --stt-url | --stt-deadline-ms | --tts-engine | --tts-url | --tts-model | --tts-api-key | --tts-deadline-ms | --data-dir | --python | --container)
         skip_value=1
         ;;
-      --model-url=* | --model-api-key=* | --model-protocol=* | --model-runtime=* | --model-executable=* | --model-deadline-ms=* | --model=* | --voice=* | --stt-engine=* | --stt-model=* | --stt-deadline-ms=* | --tts-engine=* | --tts-woof=* | --tts-url=* | --tts-model=* | --tts-api-key=* | --tts-deadline-ms=* | --data-dir=* | --python=* | --container=*)
+      --model-url=* | --model-api-key=* | --model-protocol=* | --model-runtime=* | --model-executable=* | --model-deadline-ms=* | --model=* | --voice=* | --stt-engine=* | --stt-model=* | --stt-url=* | --stt-deadline-ms=* | --tts-engine=* | --tts-url=* | --tts-model=* | --tts-api-key=* | --tts-deadline-ms=* | --data-dir=* | --python=* | --container=*)
         ;;
       *)
         echo "unknown argument: ${token}"
@@ -235,9 +235,7 @@ exec_without_shell_functions() {
 
 install_linux_packages() {
   if command -v pkg-config >/dev/null 2>&1 && pkg-config --exists gdk-3.0 webkit2gtk-4.1; then
-    if command -v python3 >/dev/null 2>&1 && python3 -c "import ensurepip" >/dev/null 2>&1; then
-      return
-    fi
+    return
   fi
 
   local id="" like=""
@@ -251,7 +249,7 @@ install_linux_packages() {
         build-essential curl wget file pkg-config patchelf cmake \
         libssl-dev libxdo-dev libgtk-3-dev libwebkit2gtk-4.1-dev \
         libayatana-appindicator3-dev librsvg2-dev \
-        python3 python3-venv python3-pip ca-certificates
+        ca-certificates
       ;;
     *fedora* | *rhel* | *centos*)
       echo "Refreshing dnf metadata."
@@ -264,7 +262,7 @@ install_linux_packages() {
       fi
       run_root dnf install -y \
         gcc gcc-c++ make cmake curl wget file openssl-devel gtk3-devel \
-        python3 python3-pip ca-certificates \
+        ca-certificates \
         "$webkit"
       rpm_install_available \
         pkgconf-pkg-config pkgconf \
@@ -274,10 +272,10 @@ install_linux_packages() {
     *arch*)
       run_root pacman -S --needed --noconfirm \
         base-devel cmake curl wget file pkgconf openssl gtk3 webkit2gtk-4.1 \
-        librsvg xdotool python python-pip ca-certificates
+        librsvg xdotool ca-certificates
       ;;
     *)
-      echo "Install CMake, GTK 3, WebKitGTK 4.1, python3, and a C compiler, then run scripts/install.sh again."
+      echo "Install CMake, GTK 3, WebKitGTK 4.1, and a C compiler, then run scripts/install.sh again."
       echo "Or re-run with --skip-system if they are already installed."
       exit 1
       ;;
@@ -377,11 +375,6 @@ if [[ -f "${HOME}/.cargo/env" ]]; then
   set +u
   source "${HOME}/.cargo/env"
   set -u
-fi
-
-if ! command -v python3 >/dev/null 2>&1; then
-  echo "python3 is not installed."
-  exit 1
 fi
 
 exec bun scripts/install.ts "$@"

@@ -18,7 +18,7 @@ test("the window is the box and hides the conversation", () => {
       hold={undefined}
       talkPhase="idle"
       hint="Hold Alt+Space or Ctrl+Space. Release to send."
-      credit="Voice by Underdog Woof"
+      credit="spoken voice"
       step=""
     />,
   );
@@ -33,7 +33,7 @@ test("the window is the box and hides the conversation", () => {
   expect(html).toContain("hud-chamfer-box");
   expect(html).toContain('id="problem"');
   expect(html).toContain("the model request failed");
-  expect(html).toContain("Voice by Underdog Woof");
+  expect(html).toContain("spoken voice");
   expect(html).not.toContain("&gt; capri:");
   expect(html).not.toContain('id="pace"');
   expect(html).not.toContain('id="thinking"');

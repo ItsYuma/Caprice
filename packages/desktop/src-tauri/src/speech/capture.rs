@@ -61,6 +61,17 @@ pub(super) fn take_fresh(captured: &Mutex<Captured>) -> (Vec<f32>, Option<String
     (mem::take(&mut guard.samples), guard.failure.clone())
 }
 
+pub(super) fn captured_len(captured: &Mutex<Captured>) -> usize {
+    lock(captured).samples.len()
+}
+
+pub(super) fn copy_range(captured: &Mutex<Captured>, start: usize, end: usize) -> Vec<f32> {
+    let guard = lock(captured);
+    let end = end.min(guard.samples.len());
+    let start = start.min(end);
+    guard.samples[start..end].to_vec()
+}
+
 fn build_stream(
     device: &cpal::Device,
     config: cpal::StreamConfig,

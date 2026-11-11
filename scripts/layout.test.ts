@@ -1,10 +1,9 @@
 import { expect, test } from "bun:test";
 
 import {
-  barkDir,
-  barkFileNames,
   capriceDataDir,
   commandEnv,
+  configError,
   configText,
   containerCommand,
   devRelease,
@@ -13,6 +12,7 @@ import {
   launcherPath,
   launcherText,
   missingNames,
+  modelsDir,
   parseSetupArgs,
   planInstall,
   platformOf,
@@ -20,7 +20,6 @@ import {
   readConfig,
   tauriDevArgs,
   windowsCmakeCandidates,
-  woofDir,
   venvPython,
   type CapriceConfig,
   type ConfigEnv,
@@ -62,9 +61,9 @@ function blankEnv(): ConfigEnv {
     modelDeadlineMs: "",
     sttEngine: "",
     sttModel: "",
+    sttUrl: "",
     sttDeadlineMs: "",
     ttsEngine: "",
-    ttsWoof: "",
     ttsVoice: "",
     ttsUrl: "",
     ttsModel: "",
@@ -83,19 +82,27 @@ function sample(repo: string): CapriceConfig {
     modelRuntime: "",
     modelExecutable: "",
     modelDeadlineMs: "",
-    sttEngine: "bark",
-    sttModel: barkDir("linux", "/data/caprice"),
+    sttEngine: "parakeet",
+    sttModel: "/models/parakeet.gguf",
+    sttUrl: "",
     sttDeadlineMs: "",
-    ttsEngine: "woof",
-    ttsWoof: woofDir("linux", "/data/caprice"),
+    ttsEngine: "http",
+    ttsWoof: "",
     ttsVoice: "mira",
-    ttsUrl: "",
-    ttsModel: "",
+    ttsUrl: "http://speech.example/v1/audio/speech",
+    ttsModel: "voice",
     ttsApiKey: "",
     ttsDeadlineMs: "",
     python: "/data/caprice/python/bin/python3",
     repo,
     container: "",
+    modelDirectory: "",
+    recordingMode: "hold",
+    vadSensitivity: 40,
+    talkChord: "both",
+    enabledGames: [],
+    sttModelId: "",
+    ttsModelId: "",
   };
 }
 
@@ -103,6 +110,8 @@ function chatArgs(): SetupArgs {
   const args = blankArgs();
   args.modelUrl = chatUrl;
   args.model = "local";
+  args.ttsUrl = "http://speech.example/v1/audio/speech";
+  args.ttsModel = "voice";
 
   return args;
 }
@@ -124,12 +133,8 @@ test("each platform has its own data directory", () => {
   expect(
     capriceDataDir("windows", "C:\\Users\\ada", "", "D:\\AppData\\Local"),
   ).toBe("D:\\AppData\\Local\\caprice");
-  expect(woofDir("macos", "/data/caprice")).toBe(
-    "/data/caprice/models/underdog-woof",
-  );
-  expect(barkDir("windows", "D:\\caprice")).toBe(
-    "D:\\caprice\\models\\underdog-bark",
-  );
+  expect(modelsDir("macos", "/data/caprice")).toBe("/data/caprice/models");
+  expect(modelsDir("windows", "D:\\caprice")).toBe("D:\\caprice\\models");
   expect(venvPython("linux", "/data/caprice")).toBe(
     "/data/caprice/python/bin/python3",
   );
@@ -185,10 +190,13 @@ test("config json round-trips and the launcher returns to the repo", () => {
   expect(readConfig('{"version":2,"modelUrl":"u"}')).toBeUndefined();
   expect(readConfig("{")).toBeUndefined();
   expect(readConfig("[]")).toBeUndefined();
-  expect(missingNames(["config.json"], barkFileNames)).toEqual([
-    "tokenizer.json",
-    "model.safetensors",
-  ]);
+  expect(
+    missingNames(["config.json"], ["tokenizer.json", "model.safetensors"]),
+  ).toEqual(["tokenizer.json", "model.safetensors"]);
+  expect(read?.recordingMode).toBe("hold");
+  expect(read?.vadSensitivity).toBe(40);
+  expect(read?.talkChord).toBe("both");
+  expect(read?.enabledGames).toEqual([]);
   expect(launcherText("linux", "/work/caprice", "")).toContain(
     "cd '/work/caprice'",
   );
@@ -219,9 +227,9 @@ test("a shell variable wins over the saved config and python stays on PATH", () 
     modelDeadlineMs: "",
     sttEngine: "",
     sttModel: "",
+    sttUrl: "",
     sttDeadlineMs: "",
     ttsEngine: "",
-    ttsWoof: "",
     ttsVoice: "",
     ttsUrl: "",
     ttsModel: "",
@@ -294,7 +302,7 @@ test("a shell variable wins over the saved config and python stays on PATH", () 
   ]);
 });
 
-test("a fresh install uses bark and keeps a saved bark-stream", () => {
+test("a fresh install uses parakeet and http, and a saved engine stays", () => {
   const fresh = planInstall(
     chatArgs(),
     undefined,
@@ -308,25 +316,32 @@ test("a fresh install uses bark and keeps a saved bark-stream", () => {
     throw new Error(fresh);
   }
 
-  expect(fresh.config.sttEngine).toBe("bark");
-  expect(fresh.config.sttModel).toBe(barkDir("linux", "/data/caprice"));
-  expect(fresh.config.ttsEngine).toBe("woof");
-  expect(fresh.config.ttsWoof).toBe(woofDir("linux", "/data/caprice"));
-  expect(fresh.config.ttsVoice).toBe("juno");
+  expect(fresh.config.sttEngine).toBe("");
+  expect(fresh.config.sttModel).toBe("");
+  expect(fresh.config.ttsEngine).toBe("");
+  expect(fresh.config.ttsWoof).toBe("");
+  expect(fresh.config.ttsVoice).toBe("");
+  expect(fresh.config.ttsUrl).toBe("http://speech.example/v1/audio/speech");
   expect(fresh.config.modelProtocol).toBe("");
   expect(fresh.config.modelDeadlineMs).toBe("");
   expect(fresh.config.sttDeadlineMs).toBe("");
   expect(fresh.config.ttsDeadlineMs).toBe("");
-  expect(fresh.bark).toBe(true);
-  expect(fresh.woof).toBe(true);
+  expect(fresh.config.recordingMode).toBe("hold");
+  expect(fresh.config.vadSensitivity).toBe(40);
+  expect(fresh.config.talkChord).toBe("both");
+  expect(fresh.config.enabledGames).toEqual([]);
 
   const saved = sample("/work/caprice");
-  saved.sttEngine = "bark-stream";
-  saved.sttModel = "/models/bark";
-  saved.ttsWoof = "/models/woof";
+  saved.sttEngine = "parakeet";
+  saved.sttModel = "/models/parakeet.gguf";
+  saved.ttsWoof = "/models/old-tts";
   saved.modelProtocol = "native";
   saved.sttDeadlineMs = "90000";
   saved.ttsDeadlineMs = "";
+  saved.recordingMode = "vad";
+  saved.vadSensitivity = 15;
+  saved.talkChord = "alt-space";
+  saved.enabledGames = ["league"];
 
   const kept = planInstall(
     chatArgs(),
@@ -341,18 +356,19 @@ test("a fresh install uses bark and keeps a saved bark-stream", () => {
     throw new Error(kept);
   }
 
-  expect(kept.config.sttEngine).toBe("bark-stream");
-  expect(kept.config.sttModel).toBe("/models/bark");
-  expect(kept.config.ttsWoof).toBe("/models/woof");
+  expect(kept.config.sttEngine).toBe("parakeet");
+  expect(kept.config.sttModel).toBe("/models/parakeet.gguf");
+  expect(kept.config.ttsWoof).toBe("/models/old-tts");
   expect(kept.config.modelProtocol).toBe("native");
   expect(kept.config.sttDeadlineMs).toBe("90000");
   expect(kept.config.ttsDeadlineMs).toBe("");
-  expect(kept.bark).toBe(false);
-  expect(kept.woof).toBe(false);
-  expect(kept.python).toBe(true);
+  expect(kept.config.recordingMode).toBe("vad");
+  expect(kept.config.vadSensitivity).toBe(15);
+  expect(kept.config.talkChord).toBe("alt-space");
+  expect(kept.config.enabledGames).toEqual(["league"]);
 
   const switched = chatArgs();
-  switched.sttEngine = "parakeet";
+  switched.sttEngine = "http";
   expect(
     planInstall(
       switched,
@@ -362,8 +378,9 @@ test("a fresh install uses bark and keeps a saved bark-stream", () => {
       "/data/caprice",
       "/work/caprice",
     ),
-  ).toBe("Pass --stt-model for the parakeet engine.");
-  switched.sttModel = "/models/parakeet.gguf";
+  ).toBe("Pass --stt-url and --stt-model for the http speech engine.");
+  switched.sttModel = "remote-stt";
+  switched.sttUrl = "http://stt.example/v1/audio";
 
   const selected = planInstall(
     switched,
@@ -378,10 +395,10 @@ test("a fresh install uses bark and keeps a saved bark-stream", () => {
     throw new Error(selected);
   }
 
-  expect(selected.config.sttEngine).toBe("parakeet");
-  expect(selected.config.sttModel).toBe("/models/parakeet.gguf");
+  expect(selected.config.sttEngine).toBe("http");
+  expect(selected.config.sttModel).toBe("remote-stt");
+  expect(selected.config.sttUrl).toBe("http://stt.example/v1/audio");
   expect(selected.config.ttsVoice).toBe("mira");
-  expect(selected.bark).toBe(false);
 
   const around = blankEnv();
   around.modelProtocol = "native";
@@ -472,20 +489,27 @@ test("install rejects a bad deadline, voice, runtime, and speech pairing", () =>
 
   const nova = chatArgs();
   nova.voice = "nova";
-  expect(
-    planInstall(
-      nova,
-      undefined,
-      blankEnv(),
-      "linux",
-      "/data/caprice",
-      "/work/caprice",
-    ),
-  ).toBe("unknown woof voice: nova");
+
+  const named = planInstall(
+    nova,
+    undefined,
+    blankEnv(),
+    "linux",
+    "/data/caprice",
+    "/work/caprice",
+  );
+
+  if (!isPlan(named)) {
+    throw new Error(named);
+  }
+
+  expect(named.config.ttsVoice).toBe("nova");
 
   const http = chatArgs();
   http.ttsEngine = "http";
   http.voice = "Mira";
+  http.ttsUrl = "";
+  http.ttsModel = "";
   expect(
     planInstall(
       http,
@@ -513,8 +537,7 @@ test("install rejects a bad deadline, voice, runtime, and speech pairing", () =>
   }
 
   expect(spoken.config.ttsVoice).toBe("Mira");
-  expect(spoken.woof).toBe(false);
-  expect(spoken.bark).toBe(true);
+  expect(spoken.config.ttsEngine).toBe("http");
 
   const ollama = chatArgs();
   ollama.modelRuntime = "ollama";
@@ -560,7 +583,7 @@ test("install rejects a bad deadline, voice, runtime, and speech pairing", () =>
   ).toBe("CAPRICE_MODEL_URL is not an http url");
 });
 
-test("a legacy config stays on bark-stream and windows cmake starts at BuildTools", () => {
+test("a legacy config still parses and retired engines fail later", () => {
   const legacy = readConfig(
     JSON.stringify({
       modelUrl: chatUrl,
@@ -573,24 +596,35 @@ test("a legacy config stays on bark-stream and windows cmake starts at BuildTool
     }),
   );
 
-  const plan = planInstall(
-    chatArgs(),
-    legacy,
-    blankEnv(),
-    "linux",
-    "/data/caprice",
-    "/work/caprice",
-  );
+  expect(legacy?.version).toBe(1);
+  expect(legacy?.sttEngine).toBe("bark-stream");
+  expect(legacy?.sttModel).toBe("/models/bark");
+  expect(legacy?.ttsEngine).toBe("woof");
+  expect(legacy?.ttsWoof).toBe("/models/woof");
+  expect(legacy?.recordingMode).toBe("hold");
+  expect(legacy?.vadSensitivity).toBe(40);
+  expect(legacy?.talkChord).toBe("both");
+  expect(legacy?.enabledGames).toEqual([]);
 
-  if (!isPlan(plan)) {
-    throw new Error(plan);
+  if (legacy === undefined) {
+    throw new Error("legacy config");
   }
 
-  expect(plan.config.version).toBe(1);
-  expect(plan.config.sttEngine).toBe("bark-stream");
-  expect(plan.config.sttModel).toBe("/models/bark");
-  expect(plan.bark).toBe(false);
-  expect(plan.woof).toBe(false);
+  expect(configError(legacy)).toBe(
+    "bark-stream is retired. Use parakeet or http.",
+  );
+  legacy.sttEngine = "parakeet";
+  expect(configError(legacy)).toBe("woof is retired. Use http.");
+  expect(
+    planInstall(
+      chatArgs(),
+      legacy,
+      blankEnv(),
+      "linux",
+      "/data/caprice",
+      "/work/caprice",
+    ),
+  ).toBe("woof is retired. Use http.");
 
   const bins = windowsCmakeCandidates(
     "C:\\Program Files",
@@ -621,9 +655,9 @@ test("a saved deadline is forwarded only when it is set", () => {
     modelDeadlineMs: "",
     sttEngine: "",
     sttModel: "",
+    sttUrl: "",
     sttDeadlineMs: "",
     ttsEngine: "",
-    ttsWoof: "",
     ttsVoice: "",
     ttsUrl: "",
     ttsModel: "",

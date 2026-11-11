@@ -1,31 +1,50 @@
-use super::woof::ReplyState;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::Arc;
+
+#[derive(Clone)]
+pub(crate) struct ReplyState {
+    generation: Arc<AtomicU64>,
+}
+
+impl ReplyState {
+    pub(crate) fn new() -> Self {
+        Self {
+            generation: Arc::new(AtomicU64::new(0)),
+        }
+    }
+
+    pub(super) fn generation(&self) -> u64 {
+        self.generation.load(Ordering::Acquire)
+    }
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum ReplyKind {
     Http,
-    Woof,
+    Local(&'static str),
 }
 
 impl ReplyKind {
     pub(super) fn parse(raw: &str) -> Result<Self, String> {
         match raw.trim() {
             "" | "http" => Ok(Self::Http),
-            "woof" => Ok(Self::Woof),
+            "piper" => Ok(Self::Local("piper")),
+            "kokoro" => Ok(Self::Local("kokoro")),
+            "woof" => Err("woof is retired. Use http.".to_string()),
             other => Err(format!("unknown reply engine: {other}")),
-        }
-    }
-
-    pub(super) fn credit(self) -> &'static str {
-        match self {
-            Self::Woof => "Voice by Underdog Woof",
-            Self::Http => "",
         }
     }
 }
 
+pub(crate) fn speech_reply_cancel(state: &ReplyState) -> Result<(), String> {
+    state.generation.fetch_add(1, Ordering::AcqRel);
+    Ok(())
+}
+
 pub(super) fn credit() -> Result<String, String> {
-    let configured = std::env::var("CAPRICE_TTS_ENGINE").unwrap_or_default();
-    Ok(ReplyKind::parse(&configured)?.credit().to_string())
+    let configured = crate::settings::tts_engine();
+    let _kind = ReplyKind::parse(&configured)?;
+    Ok(String::new())
 }
 
 pub(super) async fn perform(state: &ReplyState, text: String) -> Result<Vec<u8>, String> {
@@ -33,15 +52,10 @@ pub(super) async fn perform(state: &ReplyState, text: String) -> Result<Vec<u8>,
         return Ok(Vec::new());
     }
     let ticket = state.generation();
-    let configured = std::env::var("CAPRICE_TTS_ENGINE").unwrap_or_default();
+    let configured = crate::settings::tts_engine();
     let result = match ReplyKind::parse(&configured)? {
         ReplyKind::Http => super::speak::post(text).await,
-        ReplyKind::Woof => {
-            let state = state.clone();
-            tauri::async_runtime::spawn_blocking(move || super::woof::speak(&state, text))
-                .await
-                .map_err(|err| err.to_string())?
-        }
+        ReplyKind::Local(family) => Err(format!("{family} is not loaded yet")),
     };
     if state.generation() != ticket {
         return Err("speech reply cancelled".to_string());

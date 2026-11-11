@@ -1,13 +1,20 @@
 use tauri::menu::{Menu, MenuItem};
 use tauri::tray::TrayIconBuilder;
-use tauri::Emitter;
+use tauri::{Emitter, Manager, WebviewUrl, WebviewWindowBuilder};
 
 use crate::talk_keys::TALK_CANCEL;
 
 pub const TRAY_ID: &str = "caprice";
+pub const SETTINGS_ID: &str = "settings";
 pub const STOP_ID: &str = "stop";
 pub const QUIT_ID: &str = "quit";
-pub const TRAY_MENU: &[(&str, &str)] = &[(STOP_ID, "Stop"), (QUIT_ID, "Quit")];
+pub const SETTINGS_WIDTH: f64 = 720.0;
+pub const SETTINGS_HEIGHT: f64 = 640.0;
+pub const TRAY_MENU: &[(&str, &str)] = &[
+    (SETTINGS_ID, "Settings"),
+    (STOP_ID, "Stop"),
+    (QUIT_ID, "Quit"),
+];
 
 pub fn install_tray(app: &tauri::App) -> tauri::Result<()> {
     let icon = tauri::image::Image::from_bytes(include_bytes!("../icons/32x32.png"))?;
@@ -29,6 +36,10 @@ pub fn install_tray(app: &tauri::App) -> tauri::Result<()> {
         .menu(&menu)
         .show_menu_on_left_click(true)
         .on_menu_event(|app, event| {
+            if event.id == SETTINGS_ID {
+                open_settings(app);
+            }
+
             if event.id == STOP_ID {
                 let _ = app.emit(TALK_CANCEL, ());
             }
@@ -40,6 +51,25 @@ pub fn install_tray(app: &tauri::App) -> tauri::Result<()> {
         .build(app)?;
 
     Ok(())
+}
+
+fn open_settings(app: &tauri::AppHandle) {
+    if let Some(window) = app.get_webview_window(SETTINGS_ID) {
+        let _ = window.unminimize();
+        let _ = window.show();
+        let _ = window.set_focus();
+        return;
+    }
+    let _ = WebviewWindowBuilder::new(app, SETTINGS_ID, WebviewUrl::App("index.html".into()))
+        .title("Settings")
+        .inner_size(SETTINGS_WIDTH, SETTINGS_HEIGHT)
+        .center()
+        .decorations(true)
+        .skip_taskbar(false)
+        .resizable(true)
+        .focused(true)
+        .visible(true)
+        .build();
 }
 
 #[cfg(test)]
