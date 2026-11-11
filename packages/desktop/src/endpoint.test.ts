@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 
-import { loadModelSource } from "./endpoint.ts";
+import { loadModelSource, readMcpServers } from "./endpoint.ts";
 
 const emptyEnv = {
   CAPRICE_MODEL_URL: undefined,
@@ -33,6 +33,11 @@ test("outside the shell the page env is the endpoint", async () => {
       protocol: "text",
     },
   });
+});
+
+test("an empty mcp list is no servers", () => {
+  expect(readMcpServers(undefined)).toEqual([]);
+  expect(readMcpServers(" ")).toEqual([]);
 });
 
 test("inside the shell the endpoint is model and protocol, never the key", async () => {
