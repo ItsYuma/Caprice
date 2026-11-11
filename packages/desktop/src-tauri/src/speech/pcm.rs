@@ -4,7 +4,6 @@ pub(super) struct Fresh {
     pub sent: usize,
 }
 
-#[cfg(test)]
 pub(super) fn stable_resample_len(raw_len: usize, from_rate: u32, to_rate: u32) -> usize {
     if raw_len == 0 || from_rate == 0 || to_rate == 0 {
         return 0;
@@ -61,7 +60,6 @@ pub(super) fn fresh_samples(
     }
 }
 
-#[cfg(test)]
 pub(super) struct Resampler {
     from_rate: u32,
     to_rate: u32,
@@ -70,7 +68,6 @@ pub(super) struct Resampler {
     next_out: usize,
 }
 
-#[cfg(test)]
 impl Resampler {
     pub(super) fn new(from_rate: u32, to_rate: u32) -> Self {
         Self {
@@ -146,7 +143,6 @@ impl Resampler {
     }
 }
 
-#[cfg(test)]
 fn output_len(input_len: usize, from_rate: u32, to_rate: u32) -> usize {
     if from_rate == to_rate {
         return input_len;

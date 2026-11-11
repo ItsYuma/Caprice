@@ -11,6 +11,7 @@ pub(crate) struct ModelEntry {
     pub languages: Vec<String>,
     pub note: String,
     pub loadable: bool,
+    pub streaming: bool,
     pub role: String,
 }
 
@@ -86,6 +87,7 @@ fn directory_entry(root: &Path, dir: &Path, family: &str, base: &str) -> ModelEn
         family: family.to_string(),
         path: dir.to_string_lossy().to_string(),
         loadable: false,
+        streaming: false,
         role: "stt".to_string(),
     }
 }
@@ -102,10 +104,14 @@ fn file_entry(root: &Path, path: &Path) -> Option<ModelEntry> {
     let path_text = path.to_string_lossy().to_string();
     if lower.ends_with(".gguf") {
         let parakeet = lower.contains("parakeet");
-        let (family, base) = if parakeet {
-            ("parakeet", "Parakeet GGUF that this window can load")
+        let (family, base, streaming) = if parakeet {
+            (
+                "parakeet",
+                "Parakeet GGUF that this window streams while the key is held",
+                true,
+            )
         } else {
-            ("gguf", "GGUF file that this window does not load")
+            ("gguf", "GGUF file that this window does not load", false)
         };
         return Some(ModelEntry {
             languages: languages(&id),
@@ -115,6 +121,7 @@ fn file_entry(root: &Path, path: &Path) -> Option<ModelEntry> {
             family: family.to_string(),
             path: path_text,
             loadable: parakeet,
+            streaming,
             role: "stt".to_string(),
         });
     }
@@ -145,6 +152,7 @@ fn file_entry(root: &Path, path: &Path) -> Option<ModelEntry> {
             family: "other".to_string(),
             path: path_text,
             loadable: false,
+            streaming: false,
             role: "stt".to_string(),
         });
     }
@@ -160,6 +168,7 @@ fn voice_file(id: String, path: String, bytes: u64, family: &str, base: &str) ->
         family: family.to_string(),
         path,
         loadable: false,
+        streaming: false,
         role: "tts".to_string(),
     }
 }

@@ -10,6 +10,10 @@ pub(super) fn recording_samples(rate: u32) -> usize {
     usize::try_from(u64::from(rate).saturating_mul(MAX_RECORDING_SECS)).unwrap_or(usize::MAX)
 }
 
+pub(super) fn stream_samples() -> usize {
+    usize::try_from(16_000u64.saturating_mul(MAX_RECORDING_SECS)).unwrap_or(usize::MAX)
+}
+
 pub(super) fn stt_deadline() -> Result<Duration, String> {
     duration_ms("CAPRICE_STT_DEADLINE_MS", STT_DEADLINE_MS)
 }

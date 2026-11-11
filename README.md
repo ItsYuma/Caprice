@@ -15,6 +15,6 @@ Rocky Linux 9, RHEL 9, and AlmaLinux 9 ship WebKitGTK 4.0. The installer creates
 
 The window is the chamfered box, with no title bar and no transcript. It says thinking, then shows a sine wave while the reply plays. The last 20 lines stay in `localStorage` for the next launch. The screen does not show them.
 
-`CAPRICE_MODEL_URL` and `CAPRICE_MODEL` are required. Hearing uses a Parakeet GGUF at `CAPRICE_STT_MODEL`, or HTTP when `CAPRICE_STT_ENGINE` is `http`. Empty speech engine means Parakeet, and the clip is transcribed when the talk key is released. Spoken replies use `CAPRICE_TTS_ENGINE`. Empty or `http` also needs `CAPRICE_TTS_URL` and `CAPRICE_TTS_MODEL`. Nothing in the repo picks a host, a port, or a model path. The tray opens Settings for the model directory, the provider, and the talk chord.
+`CAPRICE_MODEL_URL` and `CAPRICE_MODEL` are required. Hearing uses a Parakeet GGUF at `CAPRICE_STT_MODEL`, or HTTP when `CAPRICE_STT_ENGINE` is `http`. Empty speech engine means Parakeet, which streams while the talk key is held. HTTP transcribes the whole clip on release. Spoken replies use `CAPRICE_TTS_ENGINE`. Empty or `http` also needs `CAPRICE_TTS_URL` and `CAPRICE_TTS_MODEL`. Nothing in the repo picks a host, a port, or a model path. The tray opens Settings for the model directory, the provider, and the talk chord.
 
 How the repo is put together: `AGENTS.md` and `docs/architecture.md`. Why each model lives where it does: `docs/technical-directions/`. Who she is allowed to be: `CAPRI.md`. What is next: `MILESTONES.md`.

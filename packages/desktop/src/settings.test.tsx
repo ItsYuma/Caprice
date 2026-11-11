@@ -52,8 +52,9 @@ const parakeet: ModelEntry = {
   path: "/models/parakeet-en.gguf",
   bytes: 12,
   languages: ["en"],
-  note: "Parakeet GGUF that this window can load.",
+  note: "Parakeet GGUF that this window streams while the key is held.",
   loadable: true,
+  streaming: true,
   role: "stt",
 };
 
@@ -84,7 +85,9 @@ test("the settings form lists a discovered model and the save control", () => {
     />,
   );
 
-  expect(html).toContain("Parakeet GGUF that this window can load.");
+  expect(html).toContain(
+    "Parakeet GGUF that this window streams while the key is held.",
+  );
   expect(html).toContain("LLM");
   expect(html).toContain("Save");
   expect(html).toContain('value="40"');

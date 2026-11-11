@@ -21,6 +21,7 @@ export type ModelEntry = {
   languages: string[];
   note: string;
   loadable: boolean;
+  streaming: boolean;
   role: ModelRole;
 };
 
@@ -202,6 +203,7 @@ function isModelEntry(value: unknown): value is ModelEntry {
   const role = readString(value, "role");
   const bytes = readNumber(value, "bytes");
   const loadable = readBoolean(value, "loadable");
+  const streaming = readBoolean(value, "streaming");
   const languages = readGames(value, "languages");
 
   if (
@@ -215,6 +217,7 @@ function isModelEntry(value: unknown): value is ModelEntry {
     !Number.isFinite(bytes) ||
     bytes < 0 ||
     loadable === undefined ||
+    streaming === undefined ||
     languages === undefined
   ) {
     return false;

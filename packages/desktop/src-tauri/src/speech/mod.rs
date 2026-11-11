@@ -1,4 +1,6 @@
+mod buffered;
 mod capture;
+mod feed;
 mod http_stt;
 mod limit;
 mod pcm;
@@ -21,6 +23,7 @@ use std::thread::JoinHandle;
 use std::time::Duration;
 
 use capture::Recording;
+use feed::Feeder;
 use http_stt::SttClip;
 use limit::stt_deadline;
 use tauri::Emitter;
@@ -48,13 +51,14 @@ struct LoadedModel {
 
 enum Mic {
     Idle,
-    Live(LiveListen),
+    Live(Box<LiveListen>),
 }
 
 struct LiveListen {
     recording: Recording,
     stop: Arc<AtomicBool>,
     watch: Option<JoinHandle<()>>,
+    feed: Option<Feeder>,
     ticket: u64,
 }
 
@@ -100,7 +104,28 @@ pub(crate) fn speech_listen_start(
         drop(opened);
         return Err("listening cancelled".to_string());
     }
+    let streaming = match streaming_model(stt_choice()?) {
+        Some(path) => {
+            let engine = engine_for(state, &path)?;
+            engine.reset();
+            Some(engine)
+        }
+        None => None,
+    };
+    if state.shared.generation.load(Ordering::Acquire) != ticket {
+        drop(opened);
+        return Err("listening cancelled".to_string());
+    }
     let stop = Arc::new(AtomicBool::new(false));
+    let feed = streaming.map(|engine| {
+        Feeder::start(
+            &state.shared,
+            engine,
+            Arc::clone(&opened.captured),
+            opened.sample_rate,
+            ticket,
+        )
+    });
     let watch = if vad_mode {
         Some(spawn_watch(
             app.clone(),
@@ -119,6 +144,7 @@ pub(crate) fn speech_listen_start(
             recording: opened,
             stop,
             watch,
+            feed,
             ticket,
         });
         return Err("listening cancelled".to_string());
@@ -129,22 +155,24 @@ pub(crate) fn speech_listen_start(
             recording: opened,
             stop,
             watch,
+            feed,
             ticket,
         });
         return Err("already listening".to_string());
     }
-    *mic = Mic::Live(LiveListen {
+    *mic = Mic::Live(Box::new(LiveListen {
         recording: opened,
         stop,
         watch,
+        feed,
         ticket,
-    });
+    }));
     state.shared.abort_notice.store(false, Ordering::Release);
     Ok(())
 }
 
 pub(crate) fn speech_listen_stop(state: &SpeechState) -> Result<ListenStop, String> {
-    let live = {
+    let mut live = {
         let mut mic = lock(&state.shared.mic);
         match mem::replace(&mut *mic, Mic::Idle) {
             Mic::Live(live) => live,
@@ -158,7 +186,13 @@ pub(crate) fn speech_listen_stop(state: &SpeechState) -> Result<ListenStop, Stri
     };
     let ticket = live.ticket;
     let sample_rate = live.recording.sample_rate;
-    let (samples, failure) = capture::take_fresh(&live.recording.captured);
+    let streamed = live.feed.is_some();
+    let fed = live.feed.take().map(Feeder::stop);
+    let (samples, failure) = if streamed {
+        (Vec::new(), None)
+    } else {
+        capture::take_fresh(&live.recording.captured)
+    };
     drop(live);
     if state.shared.generation.load(Ordering::Acquire) != ticket {
         return Err("listening cancelled".to_string());
@@ -166,25 +200,34 @@ pub(crate) fn speech_listen_stop(state: &SpeechState) -> Result<ListenStop, Stri
     if let Some(failure) = failure {
         return Err(failure);
     }
-    match stt_choice()? {
-        SttChoice::Parakeet(path) => {
-            let engine = engine_for(state, &path)?;
-            if state.shared.generation.load(Ordering::Acquire) != ticket {
-                engine.cancel();
-                return Err("listening cancelled".to_string());
-            }
-            let text = engine.transcribe(&samples, sample_rate)?;
-            if state.shared.generation.load(Ordering::Acquire) != ticket {
-                return Err("listening cancelled".to_string());
-            }
-            Ok(ListenStop::Text(text))
+    if streamed {
+        if let Some(Err(err)) = fed {
+            return Err(err);
         }
+        let engine = lock(&state.shared.engine)
+            .as_ref()
+            .map(|loaded| Arc::clone(&loaded.engine));
+        let Some(engine) = engine else {
+            return Err("parakeet stream stopped".to_string());
+        };
+        if state.shared.generation.load(Ordering::Acquire) != ticket {
+            engine.cancel();
+            return Err("listening cancelled".to_string());
+        }
+        let text = engine.finish()?;
+        if state.shared.generation.load(Ordering::Acquire) != ticket {
+            return Err("listening cancelled".to_string());
+        }
+        return Ok(ListenStop::Text(text));
+    }
+    match stt_choice()? {
         SttChoice::Http { url, model } => Ok(ListenStop::Http(SttClip {
             samples,
             rate: sample_rate,
             url,
             model,
         })),
+        SttChoice::Parakeet(_) => Err("parakeet stream stopped".to_string()),
     }
 }
 
@@ -214,6 +257,13 @@ pub(crate) fn speech_cancel(state: &SpeechState) -> Result<(), String> {
 enum SttChoice {
     Parakeet(String),
     Http { url: String, model: String },
+}
+
+fn streaming_model(choice: SttChoice) -> Option<String> {
+    match choice {
+        SttChoice::Parakeet(path) => Some(path),
+        SttChoice::Http { .. } => None,
+    }
 }
 
 fn stt_choice() -> Result<SttChoice, String> {
@@ -330,7 +380,12 @@ mod lifecycle {
         assert_eq!(stt_choice().unwrap_err(), "CAPRICE_STT_MODEL is not set");
         let _model = EnvGuard::set("CAPRICE_STT_MODEL", Some("/models/parakeet.gguf"));
         match stt_choice().unwrap() {
-            super::SttChoice::Parakeet(path) => assert_eq!(path, "/models/parakeet.gguf"),
+            super::SttChoice::Parakeet(path) => {
+                assert_eq!(
+                    super::streaming_model(super::SttChoice::Parakeet(path)),
+                    Some("/models/parakeet.gguf".to_string())
+                );
+            }
             super::SttChoice::Http { .. } => panic!("http"),
         }
         let _engine = EnvGuard::set("CAPRICE_STT_ENGINE", Some(" bark-stream "));
@@ -352,6 +407,10 @@ mod lifecycle {
             super::SttChoice::Http { url, model } => {
                 assert_eq!(url, "http://127.0.0.1/stt");
                 assert_eq!(model, "remote");
+                assert_eq!(
+                    super::streaming_model(super::SttChoice::Http { url, model }),
+                    None
+                );
             }
             super::SttChoice::Parakeet(_) => panic!("parakeet"),
         }

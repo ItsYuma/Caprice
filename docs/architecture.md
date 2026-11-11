@@ -63,7 +63,7 @@ Rust obtains the brain endpoint and credentials from configuration. The page sen
 
 ## Voice
 
-Push-to-talk progresses through arming, recording, finishing, and the reply. Microphone ownership remains in Rust until the utterance is finished or cancelled. Parakeet transcribes the whole clip when that utterance ends. Voice-activity mode ends it after silence. No incomplete transcript is used to execute actions after a recording failure.
+Push-to-talk progresses through arming, recording, finishing, and the reply. Microphone ownership remains in Rust until the utterance is finished or cancelled. A streaming model, Parakeet, is fed while the key is held and finalized on release. A model that does not stream, including HTTP, transcribes the whole clip on release. Voice-activity mode ends the utterance after silence. No incomplete transcript is used to execute actions after a recording failure.
 
 The page decodes the returned audio, applies the reply pitch, echo, and tremolo (`reply-color.md`), and plays that buffer. Escape cancels capture, the assistant turn, synthesis, and playback. Cancelling playback also prevents a pending synthesis result from starting later. The `hear`, `reply`, and `voice` times separate transcription after release, model/tool work, and synthesis before playback.
 

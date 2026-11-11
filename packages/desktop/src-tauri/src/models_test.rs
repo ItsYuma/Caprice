@@ -36,11 +36,16 @@ fn discovery_names_loadable_parakeet_and_leaves_the_rest() {
     assert_eq!(parakeet.role, "stt");
     assert_eq!(parakeet.languages, vec!["en".to_string()]);
     assert_eq!(parakeet.bytes, b"parakeet".len() as u64);
-    assert_eq!(parakeet.note, "Parakeet GGUF that this window can load.");
+    assert!(parakeet.streaming);
+    assert_eq!(
+        parakeet.note,
+        "Parakeet GGUF that this window streams while the key is held."
+    );
 
     let other = find(&listed, "other-model.gguf");
     assert_eq!(other.family, "gguf");
     assert!(!other.loadable);
+    assert!(!other.streaming);
     assert_eq!(other.role, "stt");
 
     let bark_entry = find(&listed, "underdog-bark");

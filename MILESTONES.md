@@ -29,7 +29,7 @@ Done.
 - `listenAndSay` passes that text to `say`, then the page plays the capri line
 - `hear` is transcription after release. `voice` ends when the audio bytes are ready
 - The listener is `captureListener`. Inside the Tauri window, Rust records the default microphone and loads Parakeet in that process. There is no speech-worker child
-- Empty `CAPRICE_STT_ENGINE`, or `parakeet`, transcribes a Parakeet GGUF from `CAPRICE_STT_MODEL` when the utterance ends. `http` posts the clip to `CAPRICE_STT_URL`. No model path is hardcoded
+- Empty `CAPRICE_STT_ENGINE`, or `parakeet`, streams a Parakeet GGUF from `CAPRICE_STT_MODEL` while the key is held and finalizes on release. `http` posts the whole clip to `CAPRICE_STT_URL`. No model path is hardcoded
 - Spoken replies use `CAPRICE_TTS_ENGINE`. Empty or `http` posts to `CAPRICE_TTS_URL` with `CAPRICE_TTS_MODEL`. Optional `CAPRICE_TTS_VOICE` and `CAPRICE_TTS_API_KEY`. Rust returns the bytes. The page plays them
 - `scriptedListener` and `recordingSpeaker` stay for tests
 - No microphone name, sample rate, host, or model id is hardcoded. Caprice does not shell out to Handy and does not use the Web Speech API
