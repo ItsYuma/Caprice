@@ -119,9 +119,9 @@ function currentEnv(): LaunchEnv {
     modelDeadlineMs: process.env.CAPRICE_MODEL_DEADLINE_MS ?? "",
     sttEngine: process.env.CAPRICE_STT_ENGINE ?? "",
     sttModel: process.env.CAPRICE_STT_MODEL ?? "",
+    sttUrl: process.env.CAPRICE_STT_URL ?? "",
     sttDeadlineMs: process.env.CAPRICE_STT_DEADLINE_MS ?? "",
     ttsEngine: process.env.CAPRICE_TTS_ENGINE ?? "",
-    ttsWoof: process.env.CAPRICE_TTS_WOOF ?? "",
     ttsVoice: process.env.CAPRICE_TTS_VOICE ?? "",
     ttsUrl: process.env.CAPRICE_TTS_URL ?? "",
     ttsModel: process.env.CAPRICE_TTS_MODEL ?? "",
@@ -142,9 +142,9 @@ function apply(env: LaunchEnv): void {
   setEnv("CAPRICE_MODEL_DEADLINE_MS", env.modelDeadlineMs);
   setEnv("CAPRICE_STT_ENGINE", env.sttEngine);
   setEnv("CAPRICE_STT_MODEL", env.sttModel);
+  setEnv("CAPRICE_STT_URL", env.sttUrl);
   setEnv("CAPRICE_STT_DEADLINE_MS", env.sttDeadlineMs);
   setEnv("CAPRICE_TTS_ENGINE", env.ttsEngine);
-  setEnv("CAPRICE_TTS_WOOF", env.ttsWoof);
   setEnv("CAPRICE_TTS_VOICE", env.ttsVoice);
   setEnv("CAPRICE_TTS_URL", env.ttsUrl);
   setEnv("CAPRICE_TTS_MODEL", env.ttsModel);

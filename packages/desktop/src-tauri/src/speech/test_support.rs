@@ -33,19 +33,3 @@ pub(super) fn env_lock() -> std::sync::MutexGuard<'static, ()> {
         Err(poisoned) => poisoned.into_inner(),
     }
 }
-
-pub(super) fn woof_drivers() -> Vec<std::path::PathBuf> {
-    let prefix = format!("caprice-woof-{}-", std::process::id());
-    let Ok(entries) = std::fs::read_dir(std::env::temp_dir()) else {
-        return Vec::new();
-    };
-    entries
-        .filter_map(|entry| entry.ok())
-        .map(|entry| entry.path())
-        .filter(|path| {
-            path.file_name()
-                .and_then(|name| name.to_str())
-                .is_some_and(|name| name.starts_with(&prefix))
-        })
-        .collect()
-}

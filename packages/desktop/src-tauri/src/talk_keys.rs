@@ -23,6 +23,10 @@ enum TalkCommand {
         accelerator: String,
         reply: Sender<Result<(), String>>,
     },
+    Limit {
+        allowed: Vec<String>,
+        reply: Sender<Result<(), String>>,
+    },
     Stop,
 }
 
@@ -154,6 +158,9 @@ fn run(app: AppHandle, commands: Receiver<TalkCommand>) {
             Ok(TalkCommand::Disarm { accelerator, reply }) => {
                 let _ = reply.send(disarm_chord(&manager, &mut armed, &accelerator));
             }
+            Ok(TalkCommand::Limit { allowed, reply }) => {
+                let _ = reply.send(limit_chords(&manager, &mut armed, &allowed));
+            }
             Ok(TalkCommand::Stop) | Err(RecvTimeoutError::Disconnected) => break,
             Err(RecvTimeoutError::Timeout) => {}
         }
@@ -168,10 +175,30 @@ fn open_manager() -> Result<HotkeyManager, String> {
     HotkeyManager::new().map_err(|err| err.to_string())
 }
 
+pub(crate) fn apply_accelerators(app: &AppHandle, allowed: &[String]) {
+    let Some(gate) = app.try_state::<TalkGate>() else {
+        return;
+    };
+    let (tx, rx) = mpsc::channel();
+    if gate
+        .commands
+        .send(TalkCommand::Limit {
+            allowed: allowed.to_vec(),
+            reply: tx,
+        })
+        .is_err()
+    {
+        return;
+    }
+    let _ = rx.recv();
+}
+
 fn refuse(commands: Receiver<TalkCommand>, err: String) {
     while let Ok(command) = commands.recv() {
         match command {
-            TalkCommand::Arm { reply, .. } | TalkCommand::Disarm { reply, .. } => {
+            TalkCommand::Arm { reply, .. }
+            | TalkCommand::Disarm { reply, .. }
+            | TalkCommand::Limit { reply, .. } => {
                 let _ = reply.send(Err(err.clone()));
             }
             TalkCommand::Stop => break,
@@ -180,6 +207,37 @@ fn refuse(commands: Receiver<TalkCommand>, err: String) {
 }
 
 fn arm_chord(
+    manager: &HotkeyManager,
+    armed: &mut HashMap<String, HotkeyId>,
+    accelerator: &str,
+) -> Result<(), String> {
+    if !crate::settings::allowed_talk_accelerators().contains(&accelerator) {
+        return Err("talk chord is disabled".to_string());
+    }
+    register_chord(manager, armed, accelerator)
+}
+
+fn limit_chords(
+    manager: &HotkeyManager,
+    armed: &mut HashMap<String, HotkeyId>,
+    allowed: &[String],
+) -> Result<(), String> {
+    let mut extras = Vec::new();
+    for key in armed.keys() {
+        if !allowed.contains(key) {
+            extras.push(key.clone());
+        }
+    }
+    for extra in extras {
+        disarm_chord(manager, armed, &extra)?;
+    }
+    for accelerator in allowed {
+        register_chord(manager, armed, accelerator)?;
+    }
+    Ok(())
+}
+
+fn register_chord(
     manager: &HotkeyManager,
     armed: &mut HashMap<String, HotkeyId>,
     accelerator: &str,

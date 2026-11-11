@@ -1,13 +1,3 @@
-export const woofRepo = "ConwayResearch/Underdog-Woof";
-
-export const barkRepo = "ConwayResearch/Underdog-Bark-3.0-Pro";
-
-export const barkFileNames = [
-  "config.json",
-  "tokenizer.json",
-  "model.safetensors",
-] as const;
-
 export const bunVersion = "1.4.4";
 
 export const configVersion = 1;
@@ -27,6 +17,7 @@ export type CapriceConfig = {
   modelDeadlineMs: string;
   sttEngine: string;
   sttModel: string;
+  sttUrl: string;
   sttDeadlineMs: string;
   ttsEngine: string;
   ttsWoof: string;
@@ -38,6 +29,13 @@ export type CapriceConfig = {
   python: string;
   repo: string;
   container: string;
+  modelDirectory: string;
+  recordingMode: string;
+  vadSensitivity: number;
+  talkChord: string;
+  enabledGames: string[];
+  sttModelId: string;
+  ttsModelId: string;
 };
 
 export type SetupArgs = {
@@ -51,9 +49,9 @@ export type SetupArgs = {
   voice: string;
   sttEngine: string;
   sttModel: string;
+  sttUrl: string;
   sttDeadlineMs: string;
   ttsEngine: string;
-  ttsWoof: string;
   ttsUrl: string;
   ttsModel: string;
   ttsApiKey: string;
@@ -74,9 +72,9 @@ export type ConfigEnv = {
   modelDeadlineMs: string;
   sttEngine: string;
   sttModel: string;
+  sttUrl: string;
   sttDeadlineMs: string;
   ttsEngine: string;
-  ttsWoof: string;
   ttsVoice: string;
   ttsUrl: string;
   ttsModel: string;
@@ -86,9 +84,6 @@ export type ConfigEnv = {
 
 export type InstallPlan = {
   config: CapriceConfig;
-  bark: boolean;
-  woof: boolean;
-  python: boolean;
 };
 
 export function platformOf(osName: string): Platform | undefined {
@@ -173,12 +168,8 @@ export function joinPath(
   return path;
 }
 
-export function woofDir(platform: Platform, data: string): string {
-  return joinPath(platform, data, "models", "underdog-woof");
-}
-
-export function barkDir(platform: Platform, data: string): string {
-  return joinPath(platform, data, "models", "underdog-bark");
+export function modelsDir(platform: Platform, data: string): string {
+  return joinPath(platform, data, "models");
 }
 
 export function venvDir(platform: Platform, data: string): string {
@@ -347,10 +338,6 @@ export function choose(
   return fallback;
 }
 
-export function usesBark(engine: string): boolean {
-  return engine.length === 0 || engine === "bark" || engine === "bark-stream";
-}
-
 export function planInstall(
   args: SetupArgs,
   previous: CapriceConfig | undefined,
@@ -363,7 +350,7 @@ export function planInstall(
     args.sttEngine,
     env.sttEngine,
     saved(previous, (item) => item.sttEngine),
-    "bark",
+    "",
   );
 
   const sttModel = choose(
@@ -372,14 +359,14 @@ export function planInstall(
     sameEngine(previous?.sttEngine, sttEngine)
       ? saved(previous, (item) => item.sttModel)
       : undefined,
-    usesBark(sttEngine) ? barkDir(platform, data) : "",
+    "",
   );
 
   const ttsEngine = choose(
     args.ttsEngine,
     env.ttsEngine,
     saved(previous, (item) => item.ttsEngine),
-    "woof",
+    "",
   );
 
   const config: CapriceConfig = {
@@ -428,6 +415,12 @@ export function planInstall(
     ),
     sttEngine,
     sttModel,
+    sttUrl: choose(
+      args.sttUrl,
+      env.sttUrl,
+      saved(previous, (item) => item.sttUrl),
+      "",
+    ),
     sttDeadlineMs: choose(
       args.sttDeadlineMs,
       env.sttDeadlineMs,
@@ -435,20 +428,12 @@ export function planInstall(
       "",
     ),
     ttsEngine,
-    ttsWoof: choose(
-      args.ttsWoof,
-      env.ttsWoof,
-      saved(previous, (item) => item.ttsWoof),
-      ttsEngine === "woof" ? woofDir(platform, data) : "",
-    ),
-    ttsVoice: canonicalVoice(
-      ttsEngine,
-      choose(
-        args.voice,
-        env.ttsVoice,
-        saved(previous, (item) => item.ttsVoice),
-        "",
-      ),
+    ttsWoof: previous?.ttsWoof ?? "",
+    ttsVoice: choose(
+      args.voice,
+      env.ttsVoice,
+      saved(previous, (item) => item.ttsVoice),
+      "",
     ),
     ttsUrl: choose(
       args.ttsUrl,
@@ -474,7 +459,12 @@ export function planInstall(
       saved(previous, (item) => item.ttsDeadlineMs),
       "",
     ),
-    python: previous?.python ?? "",
+    python: choose(
+      args.python,
+      "",
+      saved(previous, (item) => item.python),
+      "",
+    ),
     repo,
     container: choose(
       args.container,
@@ -482,6 +472,13 @@ export function planInstall(
       saved(previous, (item) => item.container),
       "",
     ),
+    modelDirectory: previous?.modelDirectory ?? "",
+    recordingMode: previous?.recordingMode ?? "hold",
+    vadSensitivity: previous?.vadSensitivity ?? 40,
+    talkChord: previous?.talkChord ?? "both",
+    enabledGames: copyGames(previous?.enabledGames),
+    sttModelId: previous?.sttModelId ?? "",
+    ttsModelId: previous?.ttsModelId ?? "",
   };
 
   const problem = configError(config);
@@ -490,20 +487,7 @@ export function planInstall(
     return problem;
   }
 
-  const bark =
-    usesBark(config.sttEngine) &&
-    bundled(platform, config.sttModel, barkDir(platform, data));
-
-  const woof =
-    config.ttsEngine === "woof" &&
-    bundled(platform, config.ttsWoof, woofDir(platform, data));
-
-  return {
-    config,
-    bark,
-    woof,
-    python: config.ttsEngine === "woof" || bark || woof,
-  };
+  return { config };
 }
 
 export function configError(config: CapriceConfig): string | undefined {
@@ -550,9 +534,15 @@ export function configError(config: CapriceConfig): string | undefined {
     return modelDeadline;
   }
 
+  const retiredStt = retiredSpeech(config.sttEngine);
+
+  if (retiredStt !== undefined) {
+    return retiredStt;
+  }
+
   const sttEngine = tokenError(
     config.sttEngine,
-    ["", "bark-stream", "bark", "onnx", "parakeet"],
+    ["", "parakeet", "http"],
     `unknown speech engine: ${config.sttEngine}`,
   );
 
@@ -560,10 +550,16 @@ export function configError(config: CapriceConfig): string | undefined {
     return sttEngine;
   }
 
-  if (config.sttModel.length === 0) {
-    const name = config.sttEngine.length === 0 ? "bark" : config.sttEngine;
+  if (config.sttEngine === "http") {
+    if (config.sttUrl.length === 0 || config.sttModel.length === 0) {
+      return "Pass --stt-url and --stt-model for the http speech engine.";
+    }
 
-    return `Pass --stt-model for the ${name} engine.`;
+    const sttUrl = endpointUrlError("CAPRICE_STT_URL", config.sttUrl);
+
+    if (sttUrl !== undefined) {
+      return sttUrl;
+    }
   }
 
   const sttDeadline = deadlineError(
@@ -575,9 +571,13 @@ export function configError(config: CapriceConfig): string | undefined {
     return sttDeadline;
   }
 
+  if (config.ttsEngine === "woof") {
+    return "woof is retired. Use http.";
+  }
+
   const ttsEngine = tokenError(
     config.ttsEngine,
-    ["", "http", "woof"],
+    ["", "http", "piper", "kokoro"],
     `unknown reply engine: ${config.ttsEngine}`,
   );
 
@@ -594,15 +594,35 @@ export function configError(config: CapriceConfig): string | undefined {
     return ttsDeadline;
   }
 
-  if (config.ttsEngine === "woof") {
-    if (config.ttsWoof.length === 0) {
-      return "Pass --tts-woof for the woof reply engine.";
-    }
+  const mode = tokenError(
+    config.recordingMode,
+    ["hold", "vad"],
+    "recordingMode is hold or vad",
+  );
 
-    if (config.ttsVoice !== "juno" && config.ttsVoice !== "mira") {
-      return `unknown woof voice: ${config.ttsVoice}`;
-    }
+  if (mode !== undefined) {
+    return mode;
+  }
 
+  const chord = tokenError(
+    config.talkChord,
+    ["both", "alt-space", "ctrl-space"],
+    "talkChord is both, alt-space, or ctrl-space",
+  );
+
+  if (chord !== undefined) {
+    return chord;
+  }
+
+  if (
+    !Number.isInteger(config.vadSensitivity) ||
+    config.vadSensitivity < 0 ||
+    config.vadSensitivity > 100
+  ) {
+    return "vadSensitivity is 0 through 100";
+  }
+
+  if (config.ttsEngine === "piper" || config.ttsEngine === "kokoro") {
     return undefined;
   }
 
@@ -610,7 +630,7 @@ export function configError(config: CapriceConfig): string | undefined {
     return "Pass --tts-url and --tts-model for the http reply engine.";
   }
 
-  return speechUrlError(config.ttsUrl);
+  return endpointUrlError("CAPRICE_TTS_URL", config.ttsUrl);
 }
 
 export function configText(config: CapriceConfig): string {
@@ -647,6 +667,7 @@ export function readConfig(text: string): CapriceConfig | undefined {
     modelDeadlineMs: readString(parsed, "modelDeadlineMs") ?? "",
     sttEngine: readString(parsed, "sttEngine") ?? "",
     sttModel: readString(parsed, "sttModel") ?? "",
+    sttUrl: readString(parsed, "sttUrl") ?? "",
     sttDeadlineMs: readString(parsed, "sttDeadlineMs") ?? "",
     ttsEngine: readString(parsed, "ttsEngine") ?? "",
     ttsWoof: readString(parsed, "ttsWoof") ?? "",
@@ -658,6 +679,13 @@ export function readConfig(text: string): CapriceConfig | undefined {
     python: readString(parsed, "python") ?? "",
     repo: readString(parsed, "repo") ?? "",
     container: readString(parsed, "container") ?? "",
+    modelDirectory: readString(parsed, "modelDirectory") ?? "",
+    recordingMode: readMode(parsed),
+    vadSensitivity: readSensitivity(parsed),
+    talkChord: readChord(parsed),
+    enabledGames: readGames(parsed),
+    sttModelId: readString(parsed, "sttModelId") ?? "",
+    ttsModelId: readString(parsed, "ttsModelId") ?? "",
   };
 }
 
@@ -733,9 +761,9 @@ export function containerCommand(
     exportEnv("CAPRICE_MODEL_DEADLINE_MS", env.modelDeadlineMs),
     exportEnv("CAPRICE_STT_ENGINE", env.sttEngine),
     exportEnv("CAPRICE_STT_MODEL", env.sttModel),
+    exportEnv("CAPRICE_STT_URL", env.sttUrl),
     exportEnv("CAPRICE_STT_DEADLINE_MS", env.sttDeadlineMs),
     exportEnv("CAPRICE_TTS_ENGINE", env.ttsEngine),
-    exportEnv("CAPRICE_TTS_WOOF", env.ttsWoof),
     exportEnv("CAPRICE_TTS_VOICE", env.ttsVoice),
     exportEnv("CAPRICE_TTS_URL", env.ttsUrl),
     exportEnv("CAPRICE_TTS_MODEL", env.ttsModel),
@@ -800,9 +828,9 @@ export type LaunchEnv = {
   modelDeadlineMs: string;
   sttEngine: string;
   sttModel: string;
+  sttUrl: string;
   sttDeadlineMs: string;
   ttsEngine: string;
-  ttsWoof: string;
   ttsVoice: string;
   ttsUrl: string;
   ttsModel: string;
@@ -830,9 +858,9 @@ export function launchEnv(
     modelDeadlineMs: prefer(current.modelDeadlineMs, config.modelDeadlineMs),
     sttEngine: prefer(current.sttEngine, config.sttEngine),
     sttModel: prefer(current.sttModel, config.sttModel),
+    sttUrl: prefer(current.sttUrl, config.sttUrl),
     sttDeadlineMs: prefer(current.sttDeadlineMs, config.sttDeadlineMs),
     ttsEngine: prefer(current.ttsEngine, config.ttsEngine),
-    ttsWoof: prefer(current.ttsWoof, config.ttsWoof),
     ttsVoice: prefer(current.ttsVoice, config.ttsVoice),
     ttsUrl: prefer(current.ttsUrl, config.ttsUrl),
     ttsModel: prefer(current.ttsModel, config.ttsModel),
@@ -858,23 +886,25 @@ Windows:
 --model-runtime     external or ollama. Empty means external.
 --model-executable  Ollama executable. Required when the runtime is ollama.
 --model-deadline-ms Chat deadline in milliseconds. Empty means 60000.
---voice             Woof voice juno or mira. Empty means juno. HTTP keeps the given voice.
---stt-engine        bark, bark-stream, onnx, or parakeet. A new install uses bark. bark-stream and parakeet stream. An existing engine is kept.
---stt-model         Model directory or file. A new bark install uses the bundled Bark directory.
+--voice             Optional HTTP voice. Sent only when it is non-empty.
+--stt-engine        parakeet or http. Empty means parakeet. An existing engine is kept.
+--stt-model         Parakeet GGUF, or the HTTP model name. Empty parakeet is chosen later in settings.
+--stt-url           HTTP speech endpoint. Required when the speech engine is http.
 --stt-deadline-ms   Listen deadline in milliseconds. Empty means 180000.
---tts-engine        woof or http. A new install uses woof. An existing engine is kept.
---tts-woof          Woof directory. A new woof install uses the bundled directory.
+--tts-engine        http, piper, or kokoro. Empty means http. piper and kokoro are not loaded yet.
 --tts-url           HTTP speech endpoint.
 --tts-model         HTTP speech model name.
 --tts-api-key       Optional HTTP speech bearer token.
 --tts-deadline-ms   Speech deadline in milliseconds. Empty means 60000.
---data-dir          Where models, Python, and config.json go.
---python            System Python used to create the virtual environment.
+--data-dir          Where config.json goes. Models live in its models folder.
+--python            Stored interpreter path. Speech does not start a Python child.
 --container         Fedora container name. Rocky Linux 9 uses caprice.
 --skip-system       Do not install OS packages. CMake is still required to build speech.
 --help              Show this text.
 
 Windows uses the Visual Studio CMake when that install already has one. transcribe.cpp needs CMake.
+
+bark, bark-stream, onnx, and woof are retired. Use parakeet or http.
 
 Rocky Linux 9, RHEL 9, and AlmaLinux 9 ship WebKitGTK 4.0. The window needs 4.1, so the installer continues in a Fedora container and bun run dev enters it.
 
@@ -892,9 +922,9 @@ function blankLaunch(): LaunchEnv {
     modelDeadlineMs: "",
     sttEngine: "",
     sttModel: "",
+    sttUrl: "",
     sttDeadlineMs: "",
     ttsEngine: "",
-    ttsWoof: "",
     ttsVoice: "",
     ttsUrl: "",
     ttsModel: "",
@@ -998,9 +1028,9 @@ type FlagKey =
   | "voice"
   | "sttEngine"
   | "sttModel"
+  | "sttUrl"
   | "sttDeadlineMs"
   | "ttsEngine"
-  | "ttsWoof"
   | "ttsUrl"
   | "ttsModel"
   | "ttsApiKey"
@@ -1020,9 +1050,9 @@ const flags: readonly (readonly [string, FlagKey])[] = [
   ["--voice", "voice"],
   ["--stt-engine", "sttEngine"],
   ["--stt-model", "sttModel"],
+  ["--stt-url", "sttUrl"],
   ["--stt-deadline-ms", "sttDeadlineMs"],
   ["--tts-engine", "ttsEngine"],
-  ["--tts-woof", "ttsWoof"],
   ["--tts-url", "ttsUrl"],
   ["--tts-model", "ttsModel"],
   ["--tts-api-key", "ttsApiKey"],
@@ -1083,9 +1113,9 @@ function emptyArgs(): SetupArgs {
     voice: "",
     sttEngine: "",
     sttModel: "",
+    sttUrl: "",
     sttDeadlineMs: "",
     ttsEngine: "",
-    ttsWoof: "",
     ttsUrl: "",
     ttsModel: "",
     ttsApiKey: "",
@@ -1110,44 +1140,6 @@ function saved(
 
 function sameEngine(savedEngine: string | undefined, chosen: string): boolean {
   return savedEngine === chosen;
-}
-
-function canonicalVoice(engine: string, voice: string): string {
-  if (engine === "woof") {
-    const lowered = voice.trim().toLowerCase();
-
-    if (lowered.length === 0) {
-      return "juno";
-    }
-
-    return lowered;
-  }
-
-  return voice.trim();
-}
-
-function bundled(
-  platform: Platform,
-  configured: string,
-  bundledPath: string,
-): boolean {
-  return (
-    normalizePath(platform, configured) === normalizePath(platform, bundledPath)
-  );
-}
-
-function normalizePath(platform: Platform, value: string): string {
-  let text = value.trim();
-
-  if (platform === "windows") {
-    text = text.replaceAll("/", "\\").toLowerCase();
-  }
-
-  while (text.endsWith("/") || text.endsWith("\\")) {
-    text = text.slice(0, -1);
-  }
-
-  return text;
 }
 
 function tokenError(
@@ -1192,12 +1184,100 @@ function httpUrlError(value: string): string | undefined {
   return undefined;
 }
 
-function speechUrlError(value: string): string | undefined {
+function endpointUrlError(name: string, value: string): string | undefined {
   if (!isHttpUrl(value)) {
-    return "CAPRICE_TTS_URL is not an http url";
+    return `${name} is not an http url`;
   }
 
   return undefined;
+}
+
+function retiredSpeech(engine: string): string | undefined {
+  if (engine === "bark" || engine === "bark-stream" || engine === "onnx") {
+    return `${engine} is retired. Use parakeet or http.`;
+  }
+
+  return undefined;
+}
+
+function copyGames(games: readonly string[] | undefined): string[] {
+  const copy: string[] = [];
+
+  if (games === undefined) {
+    return copy;
+  }
+
+  for (const game of games) {
+    copy.push(game);
+  }
+
+  return copy;
+}
+
+function readMode(value: JsonRecord): string {
+  return readString(value, "recordingMode") ?? "hold";
+}
+
+function readChord(value: JsonRecord): string {
+  return readString(value, "talkChord") ?? "both";
+}
+
+function readSensitivity(value: JsonRecord): number {
+  let saw = false;
+  let number: number | undefined;
+
+  for (const [name, field] of Object.entries(value)) {
+    if (name !== "vadSensitivity") {
+      continue;
+    }
+
+    saw = true;
+
+    if (isNumber(field)) {
+      number = field;
+    }
+  }
+
+  if (!saw) {
+    return 40;
+  }
+
+  if (
+    number !== undefined &&
+    Number.isInteger(number) &&
+    number >= 0 &&
+    number <= 100
+  ) {
+    return number;
+  }
+
+  return -1;
+}
+
+function readGames(value: JsonRecord): string[] {
+  let items: readonly JsonValue[] | undefined;
+
+  for (const [name, field] of Object.entries(value)) {
+    if (name === "enabledGames" && isArray(field)) {
+      items = field;
+    }
+  }
+
+  if (items === undefined) {
+    return [];
+  }
+
+  const games: string[] = [];
+
+  for (const item of items) {
+    if (!isString(item)) {
+      return [];
+    }
+
+    games.push(item);
+  }
+
+  return games;
 }
 
 function isHttpUrl(value: string): boolean {
@@ -1241,6 +1321,10 @@ function isNumber(value: unknown): value is number {
 
 function isPlainObject(value: unknown): value is JsonRecord {
   return Object.prototype.toString.call(value) === "[object Object]";
+}
+
+function isArray(value: unknown): value is readonly JsonValue[] {
+  return Object.prototype.toString.call(value) === "[object Array]";
 }
 
 function readString(value: JsonRecord, key: string): string | undefined {

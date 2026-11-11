@@ -203,3 +203,87 @@ main:hover #close,
   color: #ffb4c8;
   font-size: 12px;
 }
+
+main.settings {
+  height: 100vh;
+  overflow: auto;
+  padding: 24px 28px 40px;
+  color: #f8fafc;
+  background: #101820;
+  cursor: default;
+  user-select: text;
+  touch-action: auto;
+}
+
+body:has(main.settings),
+body:has(main.settings) #root {
+  background: #101820;
+}
+
+main.settings h1 {
+  margin: 0 0 16px;
+  font-size: 22px;
+  font-weight: 600;
+}
+
+main.settings fieldset {
+  margin: 0 0 18px;
+  padding: 12px 14px 16px;
+  border: 1px solid #2a3a48;
+}
+
+main.settings legend {
+  padding: 0 6px;
+  color: #00f0ff;
+}
+
+main.settings label {
+  display: block;
+  margin-top: 12px;
+  color: #9fb0c0;
+  font-size: 12px;
+}
+
+main.settings input,
+main.settings select,
+main.settings textarea {
+  display: block;
+  box-sizing: border-box;
+  width: 100%;
+  margin-top: 6px;
+  padding: 8px;
+  color: inherit;
+  background: #0c1218;
+  border: 1px solid #2a3a48;
+  font: inherit;
+}
+
+main.settings textarea {
+  min-height: 72px;
+}
+
+main.settings ul {
+  margin: 12px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+main.settings li label {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+}
+
+main.settings li input {
+  width: auto;
+}
+
+main.settings button {
+  margin-top: 12px;
+  padding: 8px 16px;
+  color: #101820;
+  background: #00f0ff;
+  border: 0;
+  font: inherit;
+  cursor: pointer;
+}

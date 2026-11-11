@@ -10,6 +10,14 @@ export type Speaker = {
   speak: (text: string, signal: AbortSignal) => Promise<void>;
 };
 
+export type SttProvider = {
+  transcribe: (samples: Float32Array, sampleRate: number) => Promise<string>;
+};
+
+export type TtsProvider = {
+  synthesize: (text: string, signal: AbortSignal) => Promise<Uint8Array>;
+};
+
 export function scriptedListener(lines: readonly string[]): Listener {
   let index = 0;
 
