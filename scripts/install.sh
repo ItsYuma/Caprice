@@ -248,7 +248,7 @@ install_linux_packages() {
       DEBIAN_FRONTEND=noninteractive run_root apt-get install -y \
         build-essential curl wget file pkg-config patchelf cmake \
         libssl-dev libxdo-dev libgtk-3-dev libwebkit2gtk-4.1-dev \
-        libayatana-appindicator3-dev librsvg2-dev \
+        libayatana-appindicator3-dev librsvg2-dev libasound2-dev \
         ca-certificates
       ;;
     *fedora* | *rhel* | *centos*)
@@ -261,7 +261,7 @@ install_linux_packages() {
         exit 1
       fi
       run_root dnf install -y \
-        gcc gcc-c++ make cmake curl wget file openssl-devel gtk3-devel \
+        gcc gcc-c++ make cmake curl wget file openssl-devel gtk3-devel alsa-lib-devel \
         ca-certificates \
         "$webkit"
       rpm_install_available \
@@ -271,7 +271,7 @@ install_linux_packages() {
       ;;
     *arch*)
       run_root pacman -S --needed --noconfirm \
-        base-devel cmake curl wget file pkgconf openssl gtk3 webkit2gtk-4.1 \
+        base-devel cmake curl wget file pkgconf openssl gtk3 webkit2gtk-4.1 alsa-lib \
         librsvg xdotool ca-certificates
       ;;
     *)
