@@ -35,20 +35,20 @@ Stable Bun 1.4.4 has `bun test`, `bun fmt`, and `bun check`. `bun lint` in that 
 
 ## Layout
 
-| Path                         | Owns                                                  |
-| ---------------------------- | ----------------------------------------------------- |
-| `packages/core`              | `Session`, `ToolLoopAgent`, `Tool`, MCP, persona       |
-| `packages/voice`             | `Listener`, `Speaker`, STT, TTS, and VAD              |
-| `packages/desktop`           | React window, `sayAndSpeak`, and which games load     |
-| `packages/games/contract`    | The game plugin interface                             |
-| `packages/games/league`      | League tools, followers, and the client crate         |
-| `scripts/`                   | `install.sh`, `install.ps1`, and the dev launcher     |
-| `skills/`                    | Text the local model reads                            |
-| `docs/architecture.md`       | The diagram and the dependency rule                   |
-| `docs/technical-directions/` | A decision later work would guess wrong without       |
-| `CAPRI.md`                   | Character facts the product may use                   |
-| `MILESTONES.md`              | What is next                                          |
-| `tools/oxlint/anti-slop`     | Vendored upstream. Do not restyle it                  |
+| Path                         | Owns                                              |
+| ---------------------------- | ------------------------------------------------- |
+| `packages/core`              | `Session`, `ToolLoopAgent`, `Tool`, MCP, persona  |
+| `packages/voice`             | `Listener`, `Speaker`, STT, TTS, and VAD          |
+| `packages/desktop`           | React window, `sayAndSpeak`, and which games load |
+| `packages/games/contract`    | The game plugin interface                         |
+| `packages/games/league`      | League tools, followers, and the client crate     |
+| `scripts/`                   | `install.sh`, `install.ps1`, and the dev launcher |
+| `skills/`                    | Text the local model reads                        |
+| `docs/architecture.md`       | The diagram and the dependency rule               |
+| `docs/technical-directions/` | A decision later work would guess wrong without   |
+| `CAPRI.md`                   | Character facts the product may use               |
+| `MILESTONES.md`              | What is next                                      |
+| `tools/oxlint/anti-slop`     | Vendored upstream. Do not restyle it              |
 
 `packages/core` does not import `packages/voice`, `packages/desktop`, or `packages/games`. `packages/voice` does not import the other packages. A game package does not import core, voice, or desktop. The shell is the only composer. Rust opens the window. It does not own the session.
 
@@ -106,7 +106,7 @@ The window talks to whatever chat endpoint the environment names. Set both of th
 | `CAPRICE_MODEL_PROTOCOL`   | Empty or `text` uses the whole-reply call convention. `native` sends registered function tools |
 | `CAPRICE_MODEL_RUNTIME`    | Empty or `external` uses the endpoint as it is. `ollama` starts a configured child             |
 | `CAPRICE_MODEL_EXECUTABLE` | Program for `ollama`. Required only for that runtime                                           |
-| `CAPRICE_MCP`              | Optional JSON list of MCP servers. Empty means none                                           |
+| `CAPRICE_MCP`              | Optional JSON list of MCP servers. Empty means none                                            |
 
 The assistant turn is `ToolLoopAgent`. Text and native both go through that one loop. `defineTool` adds a Zod schema on the existing tool type. That choice is `docs/technical-directions/agent-sdk.md`.
 
@@ -122,16 +122,16 @@ Nothing is drawn on the work area. The icon sits in the system tray, which Windo
 
 `listenAndSay` waits for `listen`, then runs `say`, then the speaker. `voice` ends when the audio bytes are ready, before playback. The listener is `captureListener`. Inside the Tauri window, Rust records the default microphone and loads Parakeet in that process. Parakeet streams while the key is held, so `hear` is the tail after release. HTTP does not stream, so `hear` is the whole clip after release. There is no `--speech-worker` child. The page calls `speech_listen_start`, `speech_listen_stop`, `speech_cancel`, `speech_speak`, and `speech_reply_cancel`. `scriptedListener` and `recordingSpeaker` stay for tests.
 
-| Variable              | What it is                                                                                                                          |
-| --------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
+| Variable              | What it is                                                                                                                                               |
+| --------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `CAPRICE_STT_ENGINE`  | Empty or `parakeet` streams a Parakeet GGUF while the key is held. `http` posts the whole clip on release. `bark`, `bark-stream`, and `onnx` are retired |
-| `CAPRICE_STT_MODEL`   | Parakeet GGUF path, or the model name for `http`                                                                                    |
-| `CAPRICE_STT_URL`     | Full URL for HTTP speech. Required when the engine is `http`                                                                       |
-| `CAPRICE_TTS_ENGINE`  | Empty or `http` is the POST. `piper` and `kokoro` can be selected and are not loaded yet                                           |
-| `CAPRICE_TTS_URL`     | Full URL for a JSON body `{ model, input }`                                                                                         |
-| `CAPRICE_TTS_MODEL`   | Model name sent in that body                                                                                                        |
-| `CAPRICE_TTS_VOICE`   | Optional. HTTP adds `voice` when this is non-empty                                                                                  |
-| `CAPRICE_TTS_API_KEY` | Optional bearer token. Omit it when the endpoint does not need one                                                                 |
+| `CAPRICE_STT_MODEL`   | Parakeet GGUF path, or the model name for `http`                                                                                                         |
+| `CAPRICE_STT_URL`     | Full URL for HTTP speech. Required when the engine is `http`                                                                                             |
+| `CAPRICE_TTS_ENGINE`  | Empty or `http` is the POST. `piper` and `kokoro` can be selected and are not loaded yet                                                                 |
+| `CAPRICE_TTS_URL`     | Full URL for a JSON body `{ model, input }`                                                                                                              |
+| `CAPRICE_TTS_MODEL`   | Model name sent in that body                                                                                                                             |
+| `CAPRICE_TTS_VOICE`   | Optional. HTTP adds `voice` when this is non-empty                                                                                                       |
+| `CAPRICE_TTS_API_KEY` | Optional bearer token. Omit it when the endpoint does not need one                                                                                       |
 
 Empty or `parakeet` loads one Parakeet GGUF through transcribe.cpp and feeds it while the key is held. Release finalizes that stream. `http` does not stream: it posts the whole clip as a 16 kHz mono wav in `{ model, input }`. `models_list` discovers files under the app data `models` folder, or a directory chosen in settings. Recording mode `hold` is push-to-talk. `vad` ends the utterance after 800 ms under the energy gate. The default sensitivity is 40. Settings can restrict the talk chord to Alt+Space or Ctrl+Space. When settings are absent, both still work. That choice is `docs/technical-directions/local-speech.md`. No microphone name, host, or model id is hardcoded. Caprice does not start Handy and does not use the Web Speech API.
 
