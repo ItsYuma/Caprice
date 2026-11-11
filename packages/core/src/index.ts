@@ -44,9 +44,19 @@ export type {
   Session,
 } from "./session.ts";
 
-export { toolGuide } from "./tool.ts";
+export { defineTool, toolGuide } from "./tool.ts";
 
-export type { Tool, ToolContext, ToolKind, ToolSpec } from "./tool.ts";
+export type {
+  DefinedTool,
+  Tool,
+  ToolContext,
+  ToolKind,
+  ToolSpec,
+} from "./tool.ts";
+
+export { connectMcp, parseMcpServers } from "./mcp.ts";
+
+export type { McpConnection, McpHeader, McpServer } from "./mcp.ts";
 
 export {
   clipText,

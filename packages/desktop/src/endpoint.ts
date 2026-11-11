@@ -1,6 +1,8 @@
 import {
+  parseMcpServers,
   readModelEndpoint,
   readShellModelConfig,
+  type McpServer,
   type ModelConfig,
   type ModelEndpoint,
   type ModelEnv,
@@ -17,6 +19,10 @@ export type ModelEndpointSource = {
 export type ModelSource =
   | { where: "browser"; endpoint: ModelEndpoint }
   | { where: "shell"; config: ModelConfig };
+
+export function readMcpServers(raw: string | undefined): McpServer[] {
+  return parseMcpServers(raw);
+}
 
 export async function loadModelSource(
   env: ModelEnv,

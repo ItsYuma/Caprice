@@ -1,10 +1,12 @@
 import {
   chatModel,
+  connectMcp,
   contractText,
   modelDeadlineMs,
   openSession,
   personaText,
   type ChatPost,
+  type McpServer,
   type ModelEnv,
   type Result,
   type Session,
@@ -13,7 +15,7 @@ import {
   type TranscriptEvent,
 } from "@caprice/core";
 
-import { loadModelSource } from "./endpoint.ts";
+import { loadModelSource, readMcpServers } from "./endpoint.ts";
 import type { Integration } from "./integration.ts";
 
 export type CapriceDeps = {
@@ -32,6 +34,7 @@ export type CapriceDeps = {
   ) => Promise<Result<string>>;
   remembered: readonly TranscriptEvent[];
   integrations: readonly Integration[];
+  mcp?: readonly McpServer[];
 };
 
 export type CapriceStartup =
@@ -51,7 +54,14 @@ export async function openCaprice(deps: CapriceDeps): Promise<CapriceStartup> {
       deps.integrations,
     );
 
-    const tools = toolsFrom(deps.integrations);
+    const servers = deps.mcp ?? readMcpServers(import.meta.env.CAPRICE_MCP);
+    const connected = await connectMcp(servers);
+
+    if (!connected.ok) {
+      return { status: "misconfigured", message: connected.error.message };
+    }
+
+    const tools = toolsFrom(deps.integrations, connected.value.tools);
 
     if (source.where === "shell") {
       const deadlineMs = source.config.timeoutMs ?? modelDeadlineMs;
@@ -123,13 +133,20 @@ function personaFrom(
   return parts.join("\n\n");
 }
 
-function toolsFrom(integrations: readonly Integration[]): Tool[] {
+function toolsFrom(
+  integrations: readonly Integration[],
+  mcpTools: readonly Tool[],
+): Tool[] {
   const tools: Tool[] = [];
 
   for (const integration of integrations) {
     for (const tool of integration.tools) {
       tools.push(tool);
     }
+  }
+
+  for (const tool of mcpTools) {
+    tools.push(tool);
   }
 
   return tools;

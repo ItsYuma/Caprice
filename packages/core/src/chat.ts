@@ -1,7 +1,9 @@
+import { createOpenAICompatible } from "@ai-sdk/openai-compatible";
+
 import { interpretTextReply } from "./call.ts";
 import { modelDeadlineMs } from "./deadline.ts";
 import { type ModelProtocol } from "./modelClient.ts";
-import { ok, tryCatch, type Result } from "./result.ts";
+import { fail, fromCause, ok, tryCatch, type Result } from "./result.ts";
 import type { Model, ModelCall, ModelOutput, ModelTurn } from "./session.ts";
 import { toolGuide, type ToolSpec } from "./tool.ts";
 import type { TranscriptEvent } from "./transcript.ts";
@@ -48,10 +50,12 @@ export function chatModel(
 
   return {
     async complete(turn) {
-      const posted = await post(
-        requestBody(model, protocol, turn),
+      const posted = await carryProvider(
+        requestValue(model, protocol, turn),
         turn.signal,
+        post,
         deadlineMs,
+        model,
       );
 
       if (!posted.ok) {
@@ -139,6 +143,103 @@ export function toolInputFromArguments(raw: string): string {
   }
 
   return raw;
+}
+
+const relayBase = "caprice://relay";
+
+function requestValue(
+  model: string,
+  protocol: ModelProtocol,
+  turn: ModelTurn,
+): JsonRecord {
+  const parsed: unknown = JSON.parse(requestBody(model, protocol, turn));
+
+  if (!isPlainObject(parsed)) {
+    throw new Error("the model request failed");
+  }
+
+  return parsed;
+}
+
+async function carryProvider(
+  wire: JsonRecord,
+  signal: AbortSignal,
+  post: ChatPost,
+  deadlineMs: number,
+  model: string,
+): Promise<Result<string>> {
+  let received = false;
+  let responseText = "";
+  let postError: Error | undefined;
+
+  const provider = createOpenAICompatible({
+    name: "caprice",
+    baseURL: relayBase,
+    fetch: relayFetch(
+      async (body, requestSignal) => {
+        const posted = await post(body, requestSignal, deadlineMs);
+
+        if (!posted.ok) {
+          postError = posted.error;
+
+          throw posted.error;
+        }
+
+        received = true;
+        responseText = posted.value;
+
+        return posted.value;
+      },
+      signal,
+      JSON.stringify(wire),
+    ),
+  });
+
+  try {
+    await provider.languageModel(model).doGenerate({
+      prompt: [
+        {
+          role: "user",
+          content: [{ type: "text", text: " " }],
+        },
+      ],
+      abortSignal: signal,
+    });
+  } catch (cause) {
+    if (postError !== undefined) {
+      return { ok: false, error: postError };
+    }
+
+    if (!received) {
+      return fromCause(cause, "the model request failed");
+    }
+  }
+
+  if (!received) {
+    return fail("the model request failed");
+  }
+
+  return ok(responseText);
+}
+
+function relayFetch(
+  send: (body: string, signal: AbortSignal) => Promise<string>,
+  signal: AbortSignal,
+  body: string,
+): typeof fetch {
+  const relay = async (
+    _input: Parameters<typeof fetch>[0],
+    init?: Parameters<typeof fetch>[1],
+  ) => {
+    const text = await send(body, init?.signal ?? signal);
+
+    return new Response(text, {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    });
+  };
+
+  return Object.assign(relay, { preconnect: globalThis.fetch.preconnect });
 }
 
 async function parseOutput(
